@@ -1,16 +1,22 @@
 """DRF viewsets for the clubs app.
 
-Four viewsets:
+Five viewsets / views:
 
 - ``ClubViewSet``: list / retrieve / create / update / destroy.
-  Anyone authenticated can list and retrieve; only the club admin
-  (the ``created_by`` user) can mutate.
+  Anyone authenticated can list and retrieve; only the club admins
+  (members of ``Club.admins``) can mutate. On create the request user
+  is auto-added to ``admins`` and their role is promoted to
+  ``club_admin``.
 - ``CourtViewSet``: nested under club. Only club admin can mutate.
 - ``ScheduleViewSet``: nested under court. Only club admin can
   mutate. Saving a Schedule triggers slot generation via the
   post_save signal wired in ``signals.py``.
 - ``ClubSlotListView``: read-only listing of future ``MatchSlot``
   rows for a given date.
+- ``ClubAdminViewSet``: secondary admin add / remove endpoints
+  (``POST /clubs/{id}/admins/`` and ``DELETE /clubs/{id}/admins/{user_id}/``).
+  Only existing admins can call these; the creator cannot be
+  demoted and the last admin cannot be removed.
 
 The slot-list endpoint uses a ``GenericAPIView`` rather than a
 ``ModelViewSet`` because it's a custom action shape (``GET
@@ -26,18 +32,18 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, ValidationError
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from match_slots.models import MatchSlot
 from match_slots.serializers import MatchSlotSerializer  # type: ignore[import]
+from players.models import User
 
 from .models import Club, Court, Schedule
-from .permissions import IsClubAdmin, IsAuthenticatedReadOnly
+from .permissions import IsAuthenticatedReadOnly, IsClubAdmin
 from .serializers import (
     ClubSerializer,
     ClubWriteSerializer,
@@ -73,10 +79,18 @@ class ClubViewSet(viewsets.ModelViewSet):
         return qs.prefetch_related("courts")
 
     def perform_create(self, serializer: ClubWriteSerializer) -> None:
-        # The creator becomes the club admin. We capture the request
-        # user so subsequent updates can be permission-gated by
-        # ``IsClubAdmin.has_object_permission``.
-        serializer.save(created_by=self.request.user)
+        # The creator becomes the club admin. We:
+        # 1. Save with ``created_by`` (audit field).
+        # 2. Add the creator to the M2M ``admins`` set (gates the
+        #    IsClubAdmin object-level permission).
+        # 3. Promote the creator's role to ``club_admin`` so global
+        #    role-based filtering (e.g. mobile admin tab) works.
+        club: Club = serializer.save(created_by=self.request.user)
+        club.admins.add(self.request.user)
+        creator: User = self.request.user
+        if creator.role != User.Role.CLUB_ADMIN:
+            creator.role = User.Role.CLUB_ADMIN
+            creator.save(update_fields=["role"])
 
     @transaction.atomic
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:

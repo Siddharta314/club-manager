@@ -57,6 +57,7 @@ class ClubSerializer(serializers.ModelSerializer):
     photo = AbsoluteURLField(read_only=True)
     courts = serializers.SerializerMethodField()
     created_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    admins = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
 
     class Meta:
         model = Club
@@ -66,6 +67,7 @@ class ClubSerializer(serializers.ModelSerializer):
             "address",
             "photo",
             "created_by",
+            "admins",
             "created_at",
             "updated_at",
             "courts",

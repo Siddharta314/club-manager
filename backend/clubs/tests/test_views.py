@@ -112,6 +112,9 @@ class TestClubViewSet:
         client, user = auth_client("user_admin", role=User.Role.CLUB_ADMIN)
         # Create the club as this user so created_by == user.
         club = Club.objects.create(name="A", address="A1", created_by=user)
+        # Mirror perform_create's auto-promote so the IsClubAdmin M2M
+        # check passes.
+        club.admins.add(user)
         response = client.patch(
             f"{self.URL}{club.pk}/",
             {"name": "Renamed"},
@@ -145,6 +148,9 @@ class TestCourtViewSet:
     def test_club_admin_can_create_court(self, auth_client) -> None:
         client, user = auth_client("user_court_admin", role=User.Role.CLUB_ADMIN)
         club = self._club(user)
+        # Mirror perform_create's auto-promote so the IsClubAdmin M2M
+        # check passes for the nested Court create.
+        club.admins.add(user)
         response = client.post(
             f"/api/v1/clubs/{club.pk}/courts/",
             {"name": "Court A"},
@@ -190,6 +196,9 @@ class TestScheduleViewSetAndSlotGeneration:
             "user_sched_admin", role=User.Role.CLUB_ADMIN
         )
         club = Club.objects.create(name="SC", address="SA", created_by=user)
+        # Mirror perform_create's auto-promote so the IsClubAdmin M2M
+        # check passes for the nested Schedule create.
+        club.admins.add(user)
         court = Court.objects.create(club=club, name="C1")
         # The post_save signal uses transaction.on_commit, which only
         # fires when the surrounding transaction commits. Inside

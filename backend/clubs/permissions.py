@@ -33,11 +33,19 @@ class IsAuthenticatedReadOnly(permissions.BasePermission):
 
 
 class IsClubAdmin(permissions.BasePermission):
-    """Object-level: the request user is the admin of the object's club.
+    """Object-level: the request user is an admin of the object's club.
 
     Looks at ``obj.club`` when present (Court, Schedule, MatchSlot). For
-    Club objects, it checks ``obj.created_by``. Super_admin short-circuits
-    so platform staff can edit anything.
+    Club objects, the check is the membership in ``obj.admins``. Super_admin
+    short-circuits so platform staff can edit anything.
+
+    The M2M ``Club.admins`` is the source of truth — the role check
+    (``user.is_club_admin``) was dropped because the membership relation
+    already encodes "this user can manage this club"; the global role
+    flag is maintained by ``perform_create`` and the admin endpoints so
+    filtering by role (``role=club_admin``) still works elsewhere in
+    the app (e.g. the mobile client shows an admin tab only when the
+    role is set).
 
     Note: ``has_permission`` only restricts **unsafe** methods at the
     view level. Safe methods (``GET``, ``HEAD``, ``OPTIONS``) are open
@@ -64,14 +72,12 @@ class IsClubAdmin(permissions.BasePermission):
         # Superusers (Django admin) can also edit.
         if getattr(user, "is_superuser", False):
             return True
-        if not user.is_club_admin:
-            return False
         # Resolve the club from the object. Court/Schedule resolve via
         # .club; Club itself is the club.
         club = obj if isinstance(obj, Club) else getattr(obj, "club", None)
         if club is None:
             return False
-        return club.created_by_id == user.id
+        return club.is_admin(user)
 
 
 class IsClubAdminOrSuperAdmin(IsClubAdmin):

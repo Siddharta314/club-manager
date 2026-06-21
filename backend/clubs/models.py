@@ -5,6 +5,11 @@ Domain notes
 - `Club.address` is REQUIRED (per spec). The uniqueness check on
   ``(name, address)`` prevents accidental duplicate clubs from the
   self-service onboarding flow.
+- `Club.admins` is the M2M relation that gates the IsClubAdmin
+  permission: a user can manage a club iff they are in this set. The
+  creator is auto-added via ``ClubViewSet.perform_create`` so legacy
+  ``created_by`` semantics continue to work; ``created_by`` is kept
+  for audit (who originally signed the club into existence).
 - `Court` belongs to a `Club` (a club has N courts). `is_active` toggles
   visibility for booking.
 - `Schedule` declares the weekly availability for a court: weekday (0=Mon
@@ -33,6 +38,12 @@ class Club(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="clubs_created",
+        help_text="Original creator; kept for audit. Use ``admins`` for access control.",
+    )
+    admins = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="administered_clubs",
+        help_text="Users who can manage this club (CRUD courts/schedules, slots).",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -55,6 +66,20 @@ class Club(models.Model):
 
     def __str__(self):
         return self.name
+
+    def is_admin(self, user: "models.Model | int | None") -> bool:
+        """Return True if ``user`` can manage this club.
+
+        ``user`` may be a User instance, a user pk, or ``None`` (returns
+        ``False``). Used by ``IsClubAdmin`` and the admin endpoints to
+        avoid duplicating the membership check.
+        """
+        if user is None:
+            return False
+        user_id = user if isinstance(user, int) else getattr(user, "pk", None)
+        if user_id is None:
+            return False
+        return self.admins.filter(pk=user_id).exists()
 
 
 class Court(models.Model):
