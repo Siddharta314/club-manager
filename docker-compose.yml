@@ -3,9 +3,12 @@ services:
     image: postgres:16
     restart: unless-stopped
     # Credentials default to padel:padel/padel so the
-    # `DATABASE_URL=postgresql://padel:padel@localhost:5432/padel` in
+    # `DATABASE_URL=postgresql://padel:padel@localhost:5433/padel` in
     # backend/.env.example works out-of-the-box on a developer laptop
-    # without docker (host port 5432 maps 1:1).
+    # without docker. The container's internal Postgres still listens
+    # on 5432; we only shift the **host** port to 5433 so the dev
+    # doesn't collide with a local Postgres install that may already
+    # be running on 5432.
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-padel}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-padel}
@@ -13,7 +16,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-padel}"]
       interval: 5s

@@ -98,11 +98,13 @@ ASGI_APPLICATION = "padel.asgi.application"
 # ---------------------------------------------------------------------------
 # Default matches the docker-compose Postgres service (padel:padel@db/padel).
 # For local non-docker dev override DATABASE_URL via .env to point at
-# postgresql://padel:padel@localhost:5432/padel.
+# postgresql://padel:padel@localhost:5433/padel. We use host port 5433
+# (instead of the Postgres default 5432) to avoid colliding with any
+# local Postgres install a developer may already be running.
 DATABASES = {
     "default": env.db(
         "DATABASE_URL",
-        default="postgresql://padel:padel@localhost:5432/padel",
+        default="postgresql://padel:padel@localhost:5433/padel",
     ),
 }
 
