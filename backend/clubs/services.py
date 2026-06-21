@@ -45,11 +45,14 @@ def generate_slots(schedule: Schedule) -> list[MatchSlot]:
        ``schedule.duration_minutes`` over the next 28 days (a four-week
        horizon — long enough for the mobile client, short enough to
        avoid bloating the table).
-    3. ``bulk_create`` the new slots.
+    3. Skip slots whose ``(court, start_time)`` pair already exists.
+       A booked slot's pair stays in place; we don't recreate it.
+    4. ``bulk_create`` the new slots.
 
-    Returns the list of new slot instances (pre-``bulk_create`` refresh,
-    so PKs may be unset on SQLite if it allocated them in bulk; callers
-    that need PKs should refetch).
+    Returns the list of newly-created slot instances. PKs may not be
+    populated on SQLite (Django's bulk_create skips per-row INSERT
+    RETURNING on SQLite in some configurations); callers that need PKs
+    should refetch.
     """
     from match_slots.models import MatchSlot as _MatchSlot  # local for typing
 
@@ -97,14 +100,30 @@ def generate_slots(schedule: Schedule) -> list[MatchSlot]:
             start_time__gt=timezone.now(),
             booked_match__isnull=True,
         ).delete()
-        if new_slots:
-            created = MatchSlot.objects.bulk_create(new_slots)
-            logger.info(
-                "generate_slots schedule_id=%s court_id=%s created=%s horizon=%sd",
-                schedule.id,
-                court.id,
-                len(created),
-                horizon_days,
-            )
-            return list(created)
-    return []
+
+        if not new_slots:
+            return []
+
+        # Skip slots whose (court, start_time) pair already exists —
+        # this preserves booked slots whose start_time coincides with
+        # a freshly-generated one.
+        existing_keys = set(
+            MatchSlot.objects.filter(
+                court=court,
+                start_time__in=[s.start_time for s in new_slots],
+            ).values_list("start_time", flat=True)
+        )
+        new_slots = [s for s in new_slots if s.start_time not in existing_keys]
+
+        if not new_slots:
+            return []
+
+        created = MatchSlot.objects.bulk_create(new_slots)
+        logger.info(
+            "generate_slots schedule_id=%s court_id=%s created=%s horizon=%sd",
+            schedule.id,
+            court.id,
+            len(created),
+            horizon_days,
+        )
+        return list(created)

@@ -104,12 +104,13 @@ class ClubWriteSerializer(serializers.ModelSerializer):
 # Court
 # ---------------------------------------------------------------------------
 class CourtSerializer(serializers.ModelSerializer):
-    """Court read/write shape — name + is_active + club FK (write only)."""
+    """Court read/write shape — name + is_active. Club FK is supplied
+    by the nested view, not the request body."""
 
     class Meta:
         model = Court
         fields = ("id", "club", "name", "is_active", "created_at", "updated_at")
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = ("id", "club", "created_at", "updated_at")
 
     def validate_name(self, value: str) -> str:
         if not value or not value.strip():
@@ -121,7 +122,11 @@ class CourtSerializer(serializers.ModelSerializer):
 # Schedule
 # ---------------------------------------------------------------------------
 class ScheduleSerializer(serializers.ModelSerializer):
-    """Schedule read/write — enforces time / duration invariants."""
+    """Schedule read/write — enforces time / duration invariants.
+
+    Court FK is supplied by the nested view (URL kwarg), not the
+    request body.
+    """
 
     MAX_DURATION_MINUTES: int = 240  # 4 hours per slot rule
 
@@ -137,7 +142,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = ("id", "court", "created_at", "updated_at")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         start = attrs.get("start_time")
