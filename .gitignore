@@ -88,3 +88,7 @@ test-results/
 # Build artifacts
 *.tgz
 *.tar.gz
+
+# Coverage report files (pytest-cov writes here)
+coverage.xml
+lcov.info
