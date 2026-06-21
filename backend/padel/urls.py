@@ -11,5 +11,5 @@ from django.urls import include, path
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/auth/", include("auth_clerk.urls")),
-    # clubs/ URLs land in PR 2 commit 9 (after viewsets exist).
+    path("api/v1/", include("clubs.urls")),
 ]
