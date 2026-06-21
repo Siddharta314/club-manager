@@ -37,6 +37,7 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from match_slots.models import MatchSlot
 from match_slots.serializers import MatchSlotSerializer  # type: ignore[import]
@@ -220,3 +221,90 @@ class ClubSlotListView(GenericAPIView):
             return datetime.strptime(raw, "%Y-%m-%d").date()
         except ValueError as exc:
             raise ParseError("date must be YYYY-MM-DD") from exc
+
+
+# ---------------------------------------------------------------------------
+# ClubAdminView (secondary admin add/remove)
+# ---------------------------------------------------------------------------
+class ClubAdminView(APIView):
+    """Secondary admin add/remove endpoints.
+
+    ``POST /clubs/{pk}/admins/`` with body ``{"user_id": <int>}`` —
+    promote a user to admin of this club. Only existing admins may
+    call; the target user must already belong to the club (via
+    ``User.club``); if their role is ``player`` it is bumped to
+    ``club_admin``.
+
+    ``DELETE /clubs/{pk}/admins/{user_id}/`` — remove a user from the
+    admins M2M. Only existing admins may call; the creator cannot be
+    demoted; the last admin cannot be removed.
+
+    The view deliberately uses ``APIView`` rather than a ``ViewSet``
+    because the two endpoints have different URL shapes (collection
+    POST vs item DELETE) and DRF's router wouldn't add them naturally.
+    """
+
+    permission_classes = [IsAuthenticated, IsClubAdmin]
+
+    def post(self, request: Request, pk: str) -> Response:
+        club = get_object_or_404(Club, pk=pk)
+        self.check_object_permissions(request, club)
+        user_id = _require_user_id(request.data)
+        target = get_object_or_404(User, pk=user_id)
+        # The target must already be a member of this club. Per the
+        # spec, User.club is 1:1; a user belonging to a different
+        # club cannot be promoted here.
+        if target.club_id != club.id:
+            raise ValidationError(
+                {"user_id": "User does not belong to this club."}
+            )
+        # Idempotent: re-adding an existing admin is a no-op (still
+        # returns 200 so the mobile client can retry safely).
+        if not club.is_admin(target):
+            club.admins.add(target)
+        if target.role == User.Role.PLAYER:
+            target.role = User.Role.CLUB_ADMIN
+            target.save(update_fields=["role"])
+        return Response(
+            {
+                "club_id": club.id,
+                "user_id": target.id,
+                "is_admin": True,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request: Request, pk: str, user_id: int) -> Response:
+        club = get_object_or_404(Club, pk=pk)
+        self.check_object_permissions(request, club)
+        target = get_object_or_404(User, pk=user_id)
+        # The creator (created_by) is permanent — the original signer
+        # of the club cannot be demoted via the admin endpoint.
+        if club.created_by_id == target.id:
+            raise ValidationError(
+                {"user_id": "The creator cannot be removed as admin."}
+            )
+        # Last-admin guard: ensure at least one admin remains after
+        # removal. We compare against the current admin count so the
+        # check is accurate under concurrent admins.
+        if club.admins.count() <= 1:
+            raise ValidationError(
+                {"user_id": "Cannot remove the last admin of a club."}
+            )
+        # Idempotent: removing a non-admin is a no-op.
+        if club.is_admin(target):
+            club.admins.remove(target)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _require_user_id(payload: Any) -> int:
+    """Extract and validate the ``user_id`` field from a request body."""
+    if not isinstance(payload, dict):
+        raise ValidationError({"user_id": "Request body must be a JSON object."})
+    raw = payload.get("user_id")
+    if raw is None:
+        raise ValidationError({"user_id": "This field is required."})
+    try:
+        return int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError({"user_id": "Must be an integer."}) from exc

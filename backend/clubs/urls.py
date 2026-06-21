@@ -12,6 +12,8 @@ Routes
   ``/clubs/{club_pk}/courts/{court_pk}/schedule/{pk}/`` —
   ``ScheduleViewSet`` nested under court.
 - ``/clubs/{pk}/slots/`` — ``ClubSlotListView`` (read-only slot listing).
+- ``/clubs/{pk}/admins/`` — ``ClubAdminView.post`` (add a secondary admin).
+- ``/clubs/{pk}/admins/{user_id}/`` — ``ClubAdminView.delete`` (remove).
 """
 from __future__ import annotations
 
@@ -89,5 +91,16 @@ urlpatterns = [
         "clubs/<int:pk>/slots/",
         views.ClubSlotListView.as_view(),
         name="club-slots",
+    ),
+    # Secondary admin endpoints
+    path(
+        "clubs/<int:pk>/admins/",
+        views.ClubAdminView.as_view(),
+        name="club-admins",
+    ),
+    path(
+        "clubs/<int:pk>/admins/<int:user_id>/",
+        views.ClubAdminView.as_view(),
+        name="club-admins-detail",
     ),
 ]
