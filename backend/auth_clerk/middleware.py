@@ -1,9 +1,10 @@
 """Clerk JWT verification middleware.
 
 Verifies the ``Authorization: Bearer <jwt>`` header on every request
-using ``clerk_backend_api.authenticate_request``. Caches the JWKS keys
-for one hour in process memory so we don't hit Clerk's JWKS endpoint on
-every request.
+using ``clerk_backend_api.authenticate_request``. JWKS fetching and
+caching are delegated to the Clerk SDK — this module only owns the
+process-wide ``Clerk`` client singleton so the underlying httpx
+connection pool is reused across requests within the same worker.
 
 Behaviour
 ---------
@@ -15,16 +16,11 @@ Behaviour
 - **Token valid** → resolve the Clerk ``sub`` claim to a Django ``User``
   (creating it on first sight so sign-in auto-provisions an account),
   set ``request.user`` and ``request.auth``, and let the request through.
-
-We deliberately cache the JWKS using ``time.monotonic()`` rather than
-``datetime.now()`` — monotonic time isn't affected by NTP corrections
-and is the right primitive for TTL measurement.
 """
 from __future__ import annotations
 
 import logging
 import threading
-import time
 from typing import Any
 
 from clerk_backend_api import Clerk
@@ -42,14 +38,13 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# JWKS cache
+# Clerk SDK client (singleton)
 # ---------------------------------------------------------------------------
-# The Clerk SDK fetches JWKS lazily. We wrap the ``Clerk`` instance in a
-# module-level singleton so the underlying httpx connection pool and the
-# JWKS in-memory cache survive across requests within the same worker
-# process. The cache TTL is conservative (1h) — Clerk's signing keys
-# rotate on the order of weeks.
-_JWKS_TTL_SECONDS: float = 3600.0
+# The Clerk SDK fetches JWKS lazily and caches them in-process. Wrapping
+# the ``Clerk`` instance in a module-level singleton lets us share the
+# underlying httpx connection pool across requests in the same worker.
+# Key rotation, TTL, and cache invalidation are entirely owned by the
+# SDK — this module does not need its own TTL bookkeeping.
 _clerk_client: Clerk | None = None
 _clerk_client_lock = threading.Lock()
 
