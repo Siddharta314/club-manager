@@ -140,7 +140,14 @@ class ClerkJWTMiddleware:
             email=str(state.payload.get("email") or ""),
             name=_extract_name_from_payload(state.payload),
         )
-        request.user = user
+        # Django's AuthenticationMiddleware uses SimpleLazyObject for
+        # ``request.user`` which re-resolves on every attribute access
+        # when not previously set. Setting ``request.user`` here would
+        # be overwritten by the lazy resolver. Force the underlying
+        # ``_user`` attribute and also assign ``request.user`` so DRF's
+        # ``Request.user`` property (which delegates to
+        # ``_request.user``) picks it up.
+        _assign_user(request, user)
         request.auth = state  # type: ignore[attr-defined]
         return self.get_response(request)
 
@@ -204,3 +211,42 @@ def _unauthorized(detail: str) -> JsonResponse:
     one without going through DRF (e.g. for paths that aren't views).
     """
     return JsonResponse({"detail": detail}, status=401)
+
+
+def _assign_user(request: HttpRequest, user: Any) -> None:
+    """Replace ``request.user`` with ``user`` for downstream consumers.
+
+    Django's ``AuthenticationMiddleware`` sets ``request.user`` to a
+    ``SimpleLazyObject``. Setting ``request.user = my_user`` on a
+    not-yet-resolved lazy object would trigger ``_setup()`` (which
+    resolves to ``AnonymousUser`` when no session is present) and then
+    set ``user`` as an attribute on that ``AnonymousUser`` — discarded
+    on the next access.
+
+    DRF adds another layer: ``rest_framework.request.Request`` has its
+    own ``user`` property that calls ``_authenticate()`` on first
+    access. With no DRF authentication classes configured, that
+    resolves to ``AnonymousUser`` even if the Django request carries
+    our user.
+
+    To make both layers see ``user`` we:
+
+    1. Replace the lazy object's ``_wrapped`` slot (so the Django
+       request resolves to our user).
+    2. Set ``request._user`` (DRF's storage slot on the underlying
+       Django request — read by ``auth_clerk.authentication.ClerkSessionAuthentication``).
+    3. Assign ``request.user`` as a fallback for plain Django requests.
+    """
+    lazy = request.__dict__.get("user")
+    if lazy is not None and hasattr(lazy, "_wrapped"):
+        try:
+            lazy._wrapped = user
+        except (AttributeError, TypeError):
+            pass
+    # DRF's authentication class reads request._user to populate the
+    # wrapped Request.user; without this DRF falls back to AnonymousUser.
+    try:
+        request._user = user
+    except (AttributeError, TypeError):
+        pass
+    request.user = user

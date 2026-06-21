@@ -148,12 +148,15 @@ CORS_ALLOW_CREDENTIALS = True
 # ---------------------------------------------------------------------------
 # Django REST Framework
 # ---------------------------------------------------------------------------
-# PR 2: ClerkJWTMiddleware already sets `request.user` before DRF runs, so
-# DRF's authentication classes are empty. We still ask for
-# IsAuthenticated globally — the middleware is the gatekeeper, DRF is the
-# declarative layer for views that need to opt in to read-only access.
+# PR 2: ClerkJWTMiddleware sets `request.user` on the Django request
+# before DRF runs. We add `ClerkSessionAuthentication` (in
+# `auth_clerk.authentication`) as the DRF auth class so DRF's wrapped
+# `Request.user` picks up the same user without re-running JWT
+# verification.
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "auth_clerk.authentication.ClerkSessionAuthentication",
+    ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],

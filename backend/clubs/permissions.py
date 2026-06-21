@@ -38,18 +38,24 @@ class IsClubAdmin(permissions.BasePermission):
     Looks at ``obj.club`` when present (Court, Schedule, MatchSlot). For
     Club objects, it checks ``obj.created_by``. Super_admin short-circuits
     so platform staff can edit anything.
+
+    Note: ``has_permission`` only restricts **unsafe** methods at the
+    view level. Safe methods (``GET``, ``HEAD``, ``OPTIONS``) are open
+    to any authenticated user; the object-level check below kicks in
+    only for unsafe methods too. This is what makes "any authenticated
+    user can list clubs; only club admin can mutate" actually work.
     """
 
     message = "Only the club admin can modify this object."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        # Must be authenticated for any write — reads are governed at
-        # the view layer (IsAuthenticatedReadOnly).
-        if request.method in permissions.SAFE_METHODS:
-            return _is_authenticated(request)
+        # Any authenticated user can read; writes are gated at object
+        # level below.
         return _is_authenticated(request)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Club) -> bool:
+        if request.method in permissions.SAFE_METHODS:
+            return True
         user = request.user
         if not _is_authenticated(request):
             return False

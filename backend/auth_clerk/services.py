@@ -56,23 +56,19 @@ def apply_user_update(user: Any, payload: dict[str, Any]) -> None:
     """
     fields_to_update: list[str] = []
 
-    new_email = payload.get("email")
+    # Email: Clerk payloads carry ``email_addresses`` (an array of
+    # {id, email_address}); some templates also expose a flat ``email``.
+    # We extract via the same helper the webhook uses so the contract
+    # stays in one place.
+    new_email = _extract_email(payload)
     if new_email and new_email != user.email:
         user.email = new_email
         fields_to_update.append("email")
 
-    first_name = payload.get("first_name") or ""
-    last_name = payload.get("last_name") or ""
-    full_name = payload.get("username") or ""
-    if first_name or last_name or full_name:
-        # Prefer Clerk's username if present, else concat names. The
-        # User.username field is the AbstractUser identifier; we don't
-        # touch first_name/last_name because the spec only mentions
-        # "name".
-        new_username = full_name or f"{first_name} {last_name}".strip()
-        if new_username and new_username != user.username:
-            user.username = new_username
-            fields_to_update.append("username")
+    new_username = _extract_username(payload)
+    if new_username and new_username != user.username:
+        user.username = new_username
+        fields_to_update.append("username")
 
     image_url = payload.get("image_url") or payload.get("profile_image_url")
     if image_url is not None and image_url != getattr(user, "avatar_url", None):
@@ -83,6 +79,42 @@ def apply_user_update(user: Any, payload: dict[str, Any]) -> None:
 
     if fields_to_update:
         user.save(update_fields=fields_to_update)
+
+
+def _extract_email(payload: dict[str, Any]) -> str:
+    """Pull the primary email address from a Clerk payload."""
+    flat = payload.get("email_address") or payload.get("email")
+    if flat:
+        return str(flat)
+    emails = payload.get("email_addresses") or []
+    primary_id = payload.get("primary_email_address_id")
+    for entry in emails:
+        if not isinstance(entry, dict):
+            continue
+        if primary_id and entry.get("id") != primary_id:
+            continue
+        addr = entry.get("email_address")
+        if addr:
+            return str(addr)
+    # Fallback: first entry with an address.
+    for entry in emails:
+        if isinstance(entry, dict) and entry.get("email_address"):
+            return str(entry["email_address"])
+    return ""
+
+
+def _extract_username(payload: dict[str, Any]) -> str:
+    """Pull a human-readable username from a Clerk payload.
+
+    Preference order: ``username`` → ``"first_name last_name"``.
+    Empty values are ignored.
+    """
+    username = (payload.get("username") or "").strip()
+    if username:
+        return username
+    first = (payload.get("first_name") or "").strip()
+    last = (payload.get("last_name") or "").strip()
+    return f"{first} {last}".strip()
 
 
 def soft_delete_user(user: Any) -> None:
