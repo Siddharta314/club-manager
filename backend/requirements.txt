@@ -17,8 +17,8 @@ django-cors-headers==4.*
 pillow==11.*
 
 # Clerk
-clerk-backend-api==*
-svix==*
+clerk-backend-api==6.*  # 6.x for RequestState/AuthStatus API
+svix==1.*  # Webhook signature verification
 
 # Production server
 gunicorn==23.*
