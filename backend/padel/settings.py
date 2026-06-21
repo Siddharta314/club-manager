@@ -1,10 +1,11 @@
-"""
-Django settings for the padel MVP backend.
+"""Django settings for the padel MVP backend.
 
 Environment-driven via django-environ; see `.env.example` for the full set of
 variables. Defaults are intentionally conservative so that the project boots in
 development without a `.env` file present.
 """
+from __future__ import annotations
+
 from pathlib import Path
 
 import environ
@@ -19,6 +20,7 @@ env = environ.Env(
     ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
     CORS_ALLOWED_ORIGINS=(list, ["http://localhost:8081"]),
     TIME_ZONE=(str, "Europe/Madrid"),
+    CLERK_JWT_AUDIENCE=(list, []),
 )
 
 # Read .env if present; never required.
@@ -64,6 +66,9 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # PR 2: Clerk JWT verification. Must come AFTER AuthenticationMiddleware
+    # so DRF's `request.user` resolution stays consistent.
+    "auth_clerk.middleware.ClerkJWTMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -91,10 +96,13 @@ ASGI_APPLICATION = "padel.asgi.application"
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
+# Default matches the docker-compose Postgres service (padel:padel@db/padel).
+# For local non-docker dev override DATABASE_URL via .env to point at
+# postgresql://padel:padel@localhost:5432/padel.
 DATABASES = {
     "default": env.db(
         "DATABASE_URL",
-        default="postgres://padel:padel@localhost:5432/padel",
+        default="postgresql://padel:padel@localhost:5432/padel",
     ),
 }
 
@@ -140,13 +148,17 @@ CORS_ALLOW_CREDENTIALS = True
 # ---------------------------------------------------------------------------
 # Django REST Framework
 # ---------------------------------------------------------------------------
-# Authentication classes are intentionally empty in PR 1 — Clerk JWT middleware
-# lands in PR 2 (see `auth_clerk.middleware.ClerkJWTMiddleware`).
+# PR 2: ClerkJWTMiddleware already sets `request.user` before DRF runs, so
+# DRF's authentication classes are empty. We still ask for
+# IsAuthenticated globally — the middleware is the gatekeeper, DRF is the
+# declarative layer for views that need to opt in to read-only access.
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",
+        "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20,
 }
 
 # ---------------------------------------------------------------------------
@@ -191,12 +203,15 @@ Q_CLUSTER = {
 }
 
 # ---------------------------------------------------------------------------
-# Clerk (consumed in PR 2)
+# Clerk (PR 2)
 # ---------------------------------------------------------------------------
 CLERK_SECRET_KEY = env("CLERK_SECRET_KEY", default="")
 CLERK_PUBLISHABLE_KEY = env("CLERK_PUBLISHABLE_KEY", default="")
+# Optional symmetric secret for offline JWT verification (skips JWKS fetch).
+CLERK_JWT_KEY = env("CLERK_JWT_KEY", default="")
 CLERK_JWKS_URL = env("CLERK_JWKS_URL", default="")
 CLERK_WEBHOOK_SECRET = env("CLERK_WEBHOOK_SECRET", default="")
+CLERK_JWT_AUDIENCE = env("CLERK_JWT_AUDIENCE")
 
 # ---------------------------------------------------------------------------
 # Third-party integrations (consumed in PR 4)
