@@ -42,6 +42,13 @@ class User(AbstractUser):
         help_text="Stable Clerk user identifier (immutable post-creation).",
     )
     level = LevelField(default=Decimal("3.00"))
+    club = models.ForeignKey(
+        "clubs.Club",
+        on_delete=models.SET_NULL,
+        related_name="members",
+        null=True,
+        blank=True,
+    )
     role = models.CharField(
         max_length=20,
         choices=Role.choices,
@@ -66,6 +73,7 @@ class User(AbstractUser):
         db_table = "players_user"
         indexes = [
             models.Index(fields=["clerk_user_id"], name="players_user_clerk_idx"),
+            models.Index(fields=["club"], name="players_user_club_idx"),
         ]
 
     def __str__(self):

@@ -14,7 +14,7 @@ class UserAdminConfig(UserAdmin):
     the clubs PR and gets folded into the fieldset then.
     """
 
-    list_display = ("username", "email", "role", "level", "is_active")
+    list_display = ("username", "email", "role", "level", "club", "is_active")
     list_filter = ("role", "is_active", "notify_push", "notify_email")
     search_fields = ("username", "email", "clerk_user_id")
     ordering = ("username",)
@@ -26,6 +26,7 @@ class UserAdminConfig(UserAdmin):
                 "fields": (
                     "clerk_user_id",
                     "level",
+                    "club",
                     "role",
                     "push_token",
                     "notify_push",

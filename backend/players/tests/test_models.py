@@ -32,10 +32,23 @@ class TestUserDefaults:
         assert user.push_token == ""
 
     def test_club_attribute_is_added_by_clubs_app(self):
-        """The `club` FK ships in the clubs PR (commit 6); User stays
-        import-safe without it via the `clubs.Club` forward reference."""
-        # Placeholder — the clubs PR adds User.club and a corresponding test.
-        assert not hasattr(User, "club") or True  # noqa: PLR0124
+        """The `club` FK ships alongside the clubs app in this PR."""
+        user = User.objects.create(username="uclub", email="uclub@example.com")
+        assert user.club is None
+
+    def test_user_can_be_linked_to_a_club(self):
+        from clubs.models import Club
+
+        creator = User.objects.create(username="creator2", email="c2@example.com")
+        club = Club.objects.create(
+            name="Linked Club", address="Linked 1", created_by=creator
+        )
+        member = User.objects.create(
+            username="member", email="member@example.com", club=club
+        )
+        member.refresh_from_db()
+        assert member.club == club
+        assert member in club.members.all()
 
 
 @pytest.mark.django_db
