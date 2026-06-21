@@ -85,3 +85,20 @@ class TestMatchSlotProperties:
         court_id = court.id
         court.delete()
         assert not MatchSlot.objects.filter(court_id=court_id).exists()
+
+    def test_booked_match_round_trip(self, court):
+        """MatchSlot.booked_match wires the OneToOne added in the matches PR."""
+        from matches.models import Match
+
+        host = User.objects.create(username="bh", email="bh@example.com")
+        start = timezone.now() + timedelta(days=1)
+        slot = MatchSlot.objects.create(
+            court=court, start_time=start, end_time=start + timedelta(hours=1)
+        )
+        assert slot.is_booked is False
+        match = Match.objects.create(host=host)
+        slot.booked_match = match
+        slot.save()
+        slot.refresh_from_db()
+        assert slot.booked_match_id == match.id
+        assert slot.is_booked is True

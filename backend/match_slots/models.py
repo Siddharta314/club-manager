@@ -10,8 +10,9 @@ a schedule must not create duplicate slots. Eager generation works by
 deleting future slots for the court and bulk-creating fresh ones in a
 single transaction.
 
-The reverse OneToOne to `matches.Match` is added in the matches PR
-(commit 8) once that model exists.
+The OneToOne to `matches.Match` lives here (not on Match) so the slot can
+be created empty and booked later. The reverse accessor on Match is
+`match.match_slot`.
 """
 from django.db import models
 
@@ -30,6 +31,13 @@ class MatchSlot(models.Model):
     is_active = models.BooleanField(
         default=True,
         help_text="Admins can disable a slot without deleting it.",
+    )
+    booked_match = models.OneToOneField(
+        "matches.Match",
+        on_delete=models.SET_NULL,
+        related_name="match_slot",
+        null=True,
+        blank=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -64,5 +72,5 @@ class MatchSlot(models.Model):
 
     @property
     def is_booked(self) -> bool:
-        # The `match` reverse OneToOne is added in the matches PR (commit 8).
-        return getattr(self, "match_id", None) is not None
+        # The `booked_match` field is added in the matches PR (commit 8).
+        return getattr(self, "booked_match_id", None) is not None
