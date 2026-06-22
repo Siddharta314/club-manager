@@ -19,7 +19,7 @@ urlpatterns = [
     # URL files focused and easy to diff.
     path("api/v1/", include("matches.urls")),
     path("api/v1/", include("companions.urls")),
-    # PR 4: chat polling endpoint. Players /me/ URLs land in a
-    # later commit (separate work unit).
+    # PR 4: chat polling endpoint + players /me/ endpoints.
     path("api/v1/", include("chat.urls")),
+    path("api/v1/", include("players.urls")),
 ]
