@@ -89,6 +89,11 @@ def create_match_from_slot(slot: MatchSlot, host: Any) -> Match:
     Returns the created Match wrapped in a transaction. Raises
     ``ValueError`` for invalid input — the view layer maps that to
     HTTP 400 with the message.
+
+    After commit, enqueues ``match_created`` notifications for
+    subscribed members of the club via
+    ``transaction.on_commit`` so the queue dispatch doesn't fire
+    if the surrounding transaction rolls back.
     """
     if slot.booked_match_id is not None:
         raise ValueError(f"Slot {slot.pk} is already booked")
@@ -110,7 +115,34 @@ def create_match_from_slot(slot: MatchSlot, host: Any) -> Match:
         # full slot row write and keeps the FK clean.
         slot.booked_match = match
         slot.save(update_fields=["booked_match"])
+        # Schedule the notification fan-out AFTER the surrounding
+        # transaction commits, so a rollback doesn't leave queued
+        # tasks pointing at a non-existent match.
+        transaction.on_commit(
+            lambda: _enqueue_match_created_safe(match.pk)
+        )
         return match
+
+
+def _enqueue_match_created_safe(match_id: int) -> None:
+    """Wrapper that swallows exceptions so on_commit callbacks never break the request.
+
+    Q2 ``.delay()`` itself should never fail (it just writes a row
+    to the ORM broker), but a missing club FK or unexpected schema
+    drift shouldn't propagate back into the response. Failures are
+    logged at WARNING.
+    """
+    import logging
+
+    from notifications.services import enqueue_match_created
+
+    logger = logging.getLogger(__name__)
+    try:
+        enqueue_match_created(match_id=match_id)
+    except Exception:  # pragma: no cover - defensive
+        logger.warning(
+            "enqueue_match_created failed for match %s", match_id, exc_info=True
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +158,11 @@ def join_match(match: Match, user: Any, force: bool = False) -> MatchPlayer:
 
     Raises ``ValueError`` when the match is cancelled, full, or the
     user is outside the level range and ``force`` is False.
+
+    On a freshly-created ``MatchPlayer``, schedules a
+    ``player_joined`` notification via ``transaction.on_commit``
+    (admin override path goes through the same call so an admin
+    add is also observable to other players).
     """
     if match.is_cancelled:
         raise ValueError("Match is cancelled")
@@ -145,7 +182,11 @@ def join_match(match: Match, user: Any, force: bool = False) -> MatchPlayer:
             f"[{level_range.min}, {level_range.max}]"
         )
 
-    return MatchPlayer.objects.create(match=match, user=user)
+    match_player = MatchPlayer.objects.create(match=match, user=user)
+    transaction.on_commit(
+        lambda: _enqueue_player_joined_safe(match.pk, user.pk)
+    )
+    return match_player
 
 
 def leave_match(match: Match, user: Any) -> None:
@@ -159,11 +200,60 @@ def leave_match(match: Match, user: Any) -> None:
     After a player leaves, the match's derived ``is_full`` property
     drops to ``False`` automatically (the count drops below 4) — no
     explicit transition is needed to "revert to active".
+
+    Schedules a ``player_left`` notification when a row was actually
+    removed (not on the idempotent no-op).
     """
     if match.host_id == user.pk:
         raise ValueError("Host cannot leave their own match")
 
-    MatchPlayer.objects.filter(match=match, user=user).delete()
+    deleted_count, _ = MatchPlayer.objects.filter(match=match, user=user).delete()
+    if deleted_count:
+        transaction.on_commit(
+            lambda: _enqueue_player_left_safe(match.pk, user.pk)
+        )
+
+
+def _enqueue_player_joined_safe(match_id: int, user_id: int) -> None:
+    """Defensive wrapper around ``enqueue_player_joined``.
+
+    See ``_enqueue_match_created_safe`` for rationale.
+    """
+    import logging
+
+    from notifications.services import enqueue_player_joined
+
+    logger = logging.getLogger(__name__)
+    try:
+        enqueue_player_joined(match_id=match_id, joining_user_id=user_id)
+    except Exception:  # pragma: no cover - defensive
+        logger.warning(
+            "enqueue_player_joined failed for match %s, user %s",
+            match_id,
+            user_id,
+            exc_info=True,
+        )
+
+
+def _enqueue_player_left_safe(match_id: int, user_id: int) -> None:
+    """Defensive wrapper around ``enqueue_player_left``.
+
+    See ``_enqueue_match_created_safe`` for rationale.
+    """
+    import logging
+
+    from notifications.services import enqueue_player_left
+
+    logger = logging.getLogger(__name__)
+    try:
+        enqueue_player_left(match_id=match_id, leaving_user_id=user_id)
+    except Exception:  # pragma: no cover - defensive
+        logger.warning(
+            "enqueue_player_left failed for match %s, user %s",
+            match_id,
+            user_id,
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------
