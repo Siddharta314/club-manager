@@ -14,7 +14,7 @@ class NotificationLog(models.Model):
 
     class EventType(models.TextChoices):
         MATCH_CREATED = "match_created", "Match created"
-        MATCH_JOINED = "match_joined", "Player joined"
+        MATCH_JOINED = "player_joined", "Player joined"
         MATCH_LEFT = "match_left", "Player left"
         MATCH_CANCELLED = "match_cancelled", "Match cancelled"
 
