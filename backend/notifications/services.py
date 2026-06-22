@@ -50,8 +50,10 @@ def enqueue_match_created(match_id: int) -> None:
     Each recipient is queued as an independent Q2 task so a slow
     push or email provider for one user doesn't block the rest.
     """
-    match = Match.objects.select_related("slot__court__club").get(pk=match_id)
-    club = match.slot.court.club
+    match = Match.objects.select_related(
+        "match_slot__court__club"
+    ).get(pk=match_id)
+    club = match.match_slot.court.club
 
     targets = (
         User.objects.filter(club=club)
@@ -62,8 +64,8 @@ def enqueue_match_created(match_id: int) -> None:
     payload: dict[str, Any] = {
         "match_id": match.pk,
         "club_id": club.pk,
-        "start_time": match.slot.start_time.isoformat(),
-        "court_name": match.slot.court.name,
+        "start_time": match.match_slot.start_time.isoformat(),
+        "court_name": match.match_slot.court.name,
     }
     # Lazy import to keep this module importable without the Q2
     # task being on disk (so commit ordering stays clean: services
@@ -80,7 +82,9 @@ def enqueue_match_created(match_id: int) -> None:
 
 def enqueue_player_joined(match_id: int, joining_user_id: int) -> None:
     """Notify the other players on the match that someone joined."""
-    match = Match.objects.select_related("slot__court__club").get(pk=match_id)
+    match = Match.objects.select_related(
+        "match_slot__court__club"
+    ).get(pk=match_id)
     other_user_ids = _match_other_user_ids(match, joining_user_id)
     joining_user = User.objects.get(pk=joining_user_id)
     payload: dict[str, Any] = {
@@ -102,7 +106,9 @@ def enqueue_player_joined(match_id: int, joining_user_id: int) -> None:
 
 def enqueue_player_left(match_id: int, leaving_user_id: int) -> None:
     """Notify the remaining players on the match that someone left."""
-    match = Match.objects.select_related("slot__court__club").get(pk=match_id)
+    match = Match.objects.select_related(
+        "match_slot__court__club"
+    ).get(pk=match_id)
     other_user_ids = _match_other_user_ids(match, leaving_user_id)
     leaving_user = User.objects.get(pk=leaving_user_id)
     payload: dict[str, Any] = {
