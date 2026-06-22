@@ -225,6 +225,26 @@ RESEND_API_KEY = env("RESEND_API_KEY", default="")
 EXPO_ACCESS_TOKEN = env("EXPO_ACCESS_TOKEN", default="")
 
 # ---------------------------------------------------------------------------
+# Cache (PR 3.1: idempotency-key support for join/leave)
+# ---------------------------------------------------------------------------
+# LocMemCache is in-process and sufficient for dev / single-worker tests.
+# For production, swap to ``django.core.cache.backends.redis.RedisCache``
+# (pointed at the same Redis used by Django Q2) so cached responses
+# survive across workers. The cache key is namespaced by user id so
+# there are no cross-user collisions.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "padel-cache",
+    }
+}
+
+# How long an Idempotency-Key response stays cached. Five minutes is
+# long enough to absorb a mobile retry on flaky networks without
+# forcing the client to send a fresh key for every legitimate retry.
+IDEMPOTENCY_KEY_TTL_SECONDS = 300
+
+# ---------------------------------------------------------------------------
 # Feature flag
 # ---------------------------------------------------------------------------
 MVP_ENABLED = env.bool("MVP_ENABLED", default=True)

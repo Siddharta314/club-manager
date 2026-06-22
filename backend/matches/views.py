@@ -40,6 +40,8 @@ from rest_framework.views import APIView
 from match_slots.models import MatchSlot
 from players.models import User
 
+from .idempotency import IDEMPOTENCY_HEADER, get_cached as get_idempotent_response
+from .idempotency import store as store_idempotent_response
 from .models import Match
 from .serializers import MatchSerializer
 from .services import create_match_from_slot, join_match, leave_match
@@ -120,13 +122,28 @@ class JoinMatchView(APIView):
 
     The view is intentionally simple: it loads the match (404 on
     miss) and delegates the level / capacity / cancellation
-    validation to the service. Idempotent: re-joining returns 200
-    with the current state and no new row is created.
+    validation to the service. Idempotent in two senses:
+
+    - Service-layer: re-joining the same user returns the existing
+      ``MatchPlayer`` row instead of creating a duplicate.
+    - HTTP-layer (PR 3.1): clients can send an ``Idempotency-Key``
+      header to opt into response caching — a duplicate POST with
+      the same key returns the original response verbatim, so the
+      mobile retry-on-timeout path doesn't re-create state.
     """
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request: Request, pk: int) -> Response:
+        idem_key = request.headers.get(IDEMPOTENCY_HEADER, "")
+
+        # Cached-retry path — return the original response verbatim.
+        if idem_key:
+            cached = get_idempotent_response(idem_key, request)
+            if cached is not None:
+                cached_status, cached_body = cached
+                return Response(cached_body, status=cached_status)
+
         try:
             match = Match.objects.get(pk=pk)
         except Match.DoesNotExist:
@@ -138,7 +155,14 @@ class JoinMatchView(APIView):
             join_match(match=match, user=request.user)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(MatchSerializer(match).data, status=status.HTTP_200_OK)
+        body = MatchSerializer(match).data
+        response = Response(body, status=status.HTTP_200_OK)
+
+        if idem_key:
+            store_idempotent_response(
+                idem_key, request, response.status_code, body
+            )
+        return response
 
 
 class LeaveMatchView(APIView):
@@ -146,11 +170,25 @@ class LeaveMatchView(APIView):
 
     The service layer raises ``ValueError`` if the user is the host;
     we map that to 400. Other cases (idempotent no-op) return 204.
+
+    Like ``JoinMatchView``, accepts an ``Idempotency-Key`` header for
+    mobile retry safety. A 204 response has no body, but we still
+    cache ``(204, None)`` so a retry sees the same outcome without
+    needing to know the original was body-less.
     """
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request: Request, pk: int) -> Response:
+        idem_key = request.headers.get(IDEMPOTENCY_HEADER, "")
+
+        if idem_key:
+            cached = get_idempotent_response(idem_key, request)
+            if cached is not None:
+                cached_status, cached_body = cached
+                # 204 responses carry no body; the cached body is ``None``.
+                return Response(cached_body, status=cached_status)
+
         try:
             match = Match.objects.get(pk=pk)
         except Match.DoesNotExist:
@@ -162,7 +200,13 @@ class LeaveMatchView(APIView):
             leave_match(match=match, user=request.user)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+
+        if idem_key:
+            store_idempotent_response(
+                idem_key, request, response.status_code, None
+            )
+        return response
 
 
 # ---------------------------------------------------------------------------
