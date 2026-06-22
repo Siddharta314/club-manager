@@ -63,10 +63,20 @@ class RegisterCompanionView(APIView):
         serializer = CompanionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        # When the caller is an admin but not a player, they can't be
+        # the sponsor (the service enforces sponsor-must-be-player).
+        # We default the sponsor to the match host — the natural
+        # "I'm registering on behalf of a player" path for admins.
+        # Players sponsor their own companions directly.
+        if is_player:
+            sponsor = request.user
+        else:
+            sponsor = match.host
+
         try:
             companion = register_companion(
                 match=match,
-                sponsor=request.user,
+                sponsor=sponsor,
                 name=serializer.validated_data["name"],
                 level=serializer.validated_data["level"],
             )
