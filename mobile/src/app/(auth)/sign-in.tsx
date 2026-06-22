@@ -1,4 +1,4 @@
-import { useSignIn, useAuth } from '@clerk/expo';
+import { useSignIn, useAuth, useSSO } from '@clerk/expo';
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -15,6 +15,7 @@ import {
 export default function SignInScreen() {
   const { signIn } = useSignIn();
   const { isLoaded } = useAuth();
+  const { startSSOFlow } = useSSO();
   const router = useRouter();
 
   const [emailAddress, setEmailAddress] = useState('');
@@ -23,6 +24,23 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
 
   if (!isLoaded) return null;
+
+  const onOAuthPress = async (strategy: 'oauth_google' | 'oauth_apple') => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const { createdSessionId, setActive: setActiveFromSSO } =
+        await startSSOFlow({ strategy });
+      if (createdSessionId && setActiveFromSSO) {
+        await setActiveFromSSO({ session: createdSessionId });
+        router.replace('/(app)/home');
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'OAuth sign-in failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const onSubmit = async () => {
     setSubmitting(true);
@@ -83,6 +101,21 @@ export default function SignInScreen() {
       >
         {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign in</Text>}
       </Pressable>
+      <View style={styles.divider}><Text style={styles.dividerText}>or</Text></View>
+      <Pressable
+        style={[styles.oauthButton, submitting && styles.buttonDisabled]}
+        onPress={() => onOAuthPress('oauth_google')}
+        disabled={submitting}
+      >
+        <Text style={styles.oauthButtonText}>Continue with Google</Text>
+      </Pressable>
+      <Pressable
+        style={[styles.oauthButton, submitting && styles.buttonDisabled]}
+        onPress={() => onOAuthPress('oauth_apple')}
+        disabled={submitting}
+      >
+        <Text style={styles.oauthButtonText}>Continue with Apple</Text>
+      </Pressable>
       <View style={styles.links}>
         <Link href="/(auth)/forgot-password" style={styles.link}>Forgot password?</Link>
         <Link href="/(auth)/sign-up" style={styles.link}>Don't have an account? Sign up</Link>
@@ -105,6 +138,13 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 16 },
+  dividerText: { color: '#666', marginHorizontal: 8 },
+  oauthButton: {
+    borderWidth: 1, borderColor: '#ccc', padding: 14, borderRadius: 8,
+    alignItems: 'center', marginBottom: 8, backgroundColor: '#fff',
+  },
+  oauthButtonText: { color: '#000', fontSize: 16, fontWeight: '500' },
   links: { marginTop: 16, alignItems: 'center' },
   link: { color: '#06c', marginVertical: 4 },
 });

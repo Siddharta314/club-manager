@@ -157,6 +157,7 @@ artifacts (`mem_search "sdd/padel-mvp/..."`).
 
 - [Expo SDK 55 quickstart](https://docs.expo.dev/tutorial/introduction/)
 - [Clerk Expo quickstart](https://clerk.com/docs/quickstarts/expo)
+- **OAuth (Google/Apple)**: after deploying, register `padelito-clubito://oauth-callback` as an allowed redirect URL in the Clerk dashboard.
 
 ### Gotchas
 
