@@ -25,7 +25,9 @@ notifications.
 │   ├── chat/               # Per-match polling chat (XOR author)
 │   ├── notifications/      # NotificationLog (push + email audit)
 │   └── auth_clerk/         # Clerk JWT + webhooks (scaffolded; PR 2)
-├── mobile/                 # Expo app (added in PR 5)
+├── mobile/                 # Expo SDK 55 app — web + native from one codebase
+│   ├── src/app/            # Expo Router v3 file-based routes (route groups)
+│   └── src/lib/            # apiGet<T> networking primitive (PR 5)
 ├── docker-compose.yml      # Postgres + Django web + qcluster
 └── README.md
 ```
@@ -130,9 +132,42 @@ PRs are stacked to `main`. Each PR delivers a reviewable work unit:
 | 2 | Auth (Clerk JWT + webhooks) + Clubs/Courts/Schedule + slot generation | pending |
 | 3 | Matches lifecycle + Companions | pending |
 | 4 | Chat + Notifications (Q2/Expo/Resend) | pending |
-| 5 | Mobile foundation + Auth | pending |
+| 5 | Mobile foundation + Auth | 🚧 PR 5a in flight (web foundation landed; PR 5b native auth next) |
 | 6 | Match browse + signup | pending |
 | 7 | Admin + chat + profile | pending |
 
 Design decisions and rationale live in `sdd/padel-mvp/...` Engram
 artifacts (`mem_search "sdd/padel-mvp/..."`).
+
+## Mobile app notes
+
+- **Toolchain**: Expo SDK 55 + Expo Router v3 + TypeScript + TanStack React
+  Query v5 + Clerk Expo. One codebase serves web and native.
+- **Web first**: PR 5a shipped web sign-in via Clerk's prebuilt components
+  (`mobile/src/app/(auth)/sign-in.web.tsx`, `sign-up.web.tsx`); PR 5b will
+  add native email/password, OAuth, and forgot-password flows.
+- **Auth provider wiring**: `ClerkProvider` (outer) → `QueryClientProvider`
+  → `Slot` in `mobile/src/app/_layout.tsx`. `ClerkProvider` must be
+  outermost so `apiGet<T>` can call `useAuth().getToken()` from inside
+  any `useQuery`.
+- **Token persistence**: `@clerk/expo/token-cache` — SecureStore on native,
+  `localStorage` on web. Required for reload-persists-session (A04).
+
+### Quickstarts
+
+- [Expo SDK 55 quickstart](https://docs.expo.dev/tutorial/introduction/)
+- [Clerk Expo quickstart](https://clerk.com/docs/quickstarts/expo)
+
+### Gotchas
+
+- `expo start --web` requires **Node 20.19+** (we run 22.22.3 locally).
+- `EXPO_PUBLIC_API_URL` defaults to `http://localhost:8000/api/v1`, which
+  only works on the dev machine. For a **physical device**, replace it
+  with your machine's LAN IP (e.g. `http://192.168.1.42:8000/api/v1`) —
+  see [Expo's networking guide](https://docs.expo.dev/get-started/start-developing/#tunnel-urls)
+  for the alternatives (LAN, tunnel, localhost).
+- pnpm 11+ requires `pnpm approve-builds` (interactive) before
+  `pnpm install` will run transitive native build scripts. Run this
+  locally once after pulling.
+- Don't paste a real `pk_live_*` into `mobile/.env.example` — only the
+  documented variable names belong there.
