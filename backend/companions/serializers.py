@@ -11,10 +11,12 @@ Two serializers:
   fields (audit metadata, etc.) without forcing a breaking change
   on the create payload.
 
-Level validation is mirrored at the serializer level so the API
-returns 400 with a friendly message rather than relying on the
-``LevelField`` validators to fire on ``full_clean()`` (which DRF
-doesn't call by default for ``ModelSerializer.save``).
+Both serializers share the same ``name`` and ``level`` validators —
+``validate_companion_name`` and ``validate_companion_level``. The
+validators mirror the ``LevelField`` bounds (0.00–7.00) so the API
+returns 400 with a friendly message rather than relying on
+``full_clean()`` (which DRF doesn't call by default for
+``ModelSerializer.save``).
 """
 from __future__ import annotations
 
@@ -23,8 +25,36 @@ from rest_framework import serializers
 from .models import Companion
 
 
+def validate_companion_name(value: str) -> str:
+    """Reject empty / whitespace-only companion names; return the trimmed value.
+
+    Shared between ``CompanionSerializer`` and ``CompanionCreateSerializer``
+    so the rules live in exactly one place.
+    """
+    if not value or not value.strip():
+        raise serializers.ValidationError("Name must not be empty")
+    return value.strip()
+
+
+def validate_companion_level(value: float) -> float:
+    """Coerce ``value`` to ``float`` and enforce the 0.00–7.00 range.
+
+    The ``LevelField`` validators on the model also enforce the same
+    bounds at ``full_clean()`` time, but DRF does not call ``full_clean``
+    on ``save`` by default — so we mirror the check here to return a
+    clean 400 instead of a 500 on bad input.
+    """
+    try:
+        level = float(value)
+    except (TypeError, ValueError) as exc:
+        raise serializers.ValidationError("Level must be a number") from exc
+    if level < 0.00 or level > 7.00:
+        raise serializers.ValidationError("Level must be between 0.00 and 7.00")
+    return level
+
+
 class CompanionSerializer(serializers.ModelSerializer):
-    """Companion serializer with name and level."""
+    """Companion serializer (read + write shape)."""
 
     class Meta:
         model = Companion
@@ -32,17 +62,10 @@ class CompanionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "match_id", "sponsored_by_id", "created_at"]
 
     def validate_name(self, value: str) -> str:
-        if not value or not value.strip():
-            raise serializers.ValidationError("Name must not be empty")
-        return value.strip()
+        return validate_companion_name(value)
 
     def validate_level(self, value: float) -> float:
-        # The LevelField validators on the model enforce 0.00–7.00;
-        # we mirror the check here so the API returns 400 instead of
-        # 500 on bad input.
-        if value < 0.00 or value > 7.00:
-            raise serializers.ValidationError("Level must be between 0.00 and 7.00")
-        return value
+        return validate_companion_level(value)
 
 
 class CompanionCreateSerializer(serializers.ModelSerializer):
@@ -57,11 +80,7 @@ class CompanionCreateSerializer(serializers.ModelSerializer):
         fields = ["name", "level"]
 
     def validate_name(self, value: str) -> str:
-        if not value or not value.strip():
-            raise serializers.ValidationError("Name must not be empty")
-        return value.strip()
+        return validate_companion_name(value)
 
     def validate_level(self, value: float) -> float:
-        if value < 0.00 or value > 7.00:
-            raise serializers.ValidationError("Level must be between 0.00 and 7.00")
-        return value
+        return validate_companion_level(value)
