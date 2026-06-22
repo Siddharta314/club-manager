@@ -33,11 +33,9 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     is non-null per the model's XOR invariant.
     """
 
-    author_user_id = serializers.IntegerField(
-        source="author_user_id", read_only=True, allow_null=True
-    )
+    author_user_id = serializers.IntegerField(read_only=True, allow_null=True)
     author_companion_id = serializers.IntegerField(
-        source="author_companion_id", read_only=True, allow_null=True
+        read_only=True, allow_null=True
     )
     author_display_name = serializers.SerializerMethodField()
 

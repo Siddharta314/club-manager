@@ -61,7 +61,9 @@ class ChatMessageListView(APIView):
     def _get_match_or_404(pk: int) -> Match:
         """Fetch the match with its slot/court/club path eagerly loaded."""
         try:
-            return Match.objects.select_related("slot__court__club").get(pk=pk)
+            return Match.objects.select_related(
+                "match_slot__court__club"
+            ).get(pk=pk)
         except Match.DoesNotExist as exc:
             raise NotFound("Match not found") from exc
 
