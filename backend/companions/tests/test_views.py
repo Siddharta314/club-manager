@@ -242,3 +242,142 @@ class TestCompanionDetailView:
         client, _ = auth_client("c_du", level=3.50)
         response = client.delete(self.URL_TMPL.format(id=999_999))
         assert response.status_code == 404
+
+    # ------------------------------------------------------------------
+    # PATCH (edit name / level)
+    # ------------------------------------------------------------------
+    def test_patch_by_sponsor_updates_name_and_level(self, auth_client) -> None:
+        _, _, slot = _make_club_court_slot()
+        client, host = auth_client("c_ph", level=3.50)
+        match = create_match_from_slot(slot=slot, host=host)
+        # Register as sponsor.
+        response = client.post(
+            f"/api/v1/matches/{match.pk}/companions/",
+            {"name": "Alex", "level": 3.40},
+            format="json",
+        )
+        assert response.status_code == 201
+        companion_id = response.data["id"]
+        # Sponsor PATCHes both fields.
+        response = client.patch(
+            self.URL_TMPL.format(id=companion_id),
+            {"name": "Alex R.", "level": 3.60},
+            format="json",
+        )
+        assert response.status_code == 200, response.data
+        assert response.data["name"] == "Alex R."
+        assert float(response.data["level"]) == 3.60
+
+    def test_patch_by_admin_updates_name(self, auth_client) -> None:
+        """A club admin (not the sponsor) can edit name."""
+        _, _, slot = _make_club_court_slot()
+        client, host = auth_client("c_pah", level=3.50)
+        match = create_match_from_slot(slot=slot, host=host)
+        response = client.post(
+            f"/api/v1/matches/{match.pk}/companions/",
+            {"name": "Alex", "level": 3.40},
+            format="json",
+        )
+        companion_id = response.data["id"]
+        # Admin from the same club edits.
+        client_admin, admin = auth_client("c_paa", role=User.Role.CLUB_ADMIN)
+        match.slot.court.club.admins.add(admin)
+        response = client_admin.patch(
+            self.URL_TMPL.format(id=companion_id),
+            {"name": "Renamed"},
+            format="json",
+        )
+        assert response.status_code == 200, response.data
+        assert response.data["name"] == "Renamed"
+
+    def test_patch_by_other_user_returns_403(self, auth_client) -> None:
+        """A different player on the match (not the sponsor, not admin) gets 403."""
+        _, _, slot = _make_club_court_slot()
+        client, host = auth_client("c_ph3", level=3.50)
+        match = create_match_from_slot(slot=slot, host=host)
+        response = client.post(
+            f"/api/v1/matches/{match.pk}/companions/",
+            {"name": "Mine", "level": 3.40},
+            format="json",
+        )
+        companion_id = response.data["id"]
+        client_other, other = auth_client("c_po", level=3.50)
+        join_match(match=match, user=other)
+        response = client_other.patch(
+            self.URL_TMPL.format(id=companion_id),
+            {"name": "Stolen"},
+            format="json",
+        )
+        assert response.status_code == 403
+
+    def test_patch_unknown_companion_returns_404(self, auth_client) -> None:
+        client, _ = auth_client("c_pu", level=3.50)
+        response = client.patch(
+            self.URL_TMPL.format(id=999_999),
+            {"name": "Ghost"},
+            format="json",
+        )
+        assert response.status_code == 404
+
+    def test_patch_invalid_level_returns_400(self, auth_client) -> None:
+        """Level above 7.00 → 400 from the shared validator."""
+        _, _, slot = _make_club_court_slot()
+        client, _ = auth_client("c_pil", level=3.50)
+        _, host = auth_client("c_pil2", level=3.50)
+        match = create_match_from_slot(slot=slot, host=host)
+        response = client.post(
+            f"/api/v1/matches/{match.pk}/companions/",
+            {"name": "X", "level": 3.40},
+            format="json",
+        )
+        companion_id = response.data["id"]
+        # Out-of-range level.
+        response = client.patch(
+            self.URL_TMPL.format(id=companion_id),
+            {"level": 9.00},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "level" in response.data
+
+    def test_patch_empty_name_returns_400(self, auth_client) -> None:
+        """Empty name → 400 from the shared validator."""
+        _, _, slot = _make_club_court_slot()
+        client, _ = auth_client("c_pen", level=3.50)
+        _, host = auth_client("c_pen2", level=3.50)
+        match = create_match_from_slot(slot=slot, host=host)
+        response = client.post(
+            f"/api/v1/matches/{match.pk}/companions/",
+            {"name": "X", "level": 3.40},
+            format="json",
+        )
+        companion_id = response.data["id"]
+        response = client.patch(
+            self.URL_TMPL.format(id=companion_id),
+            {"name": "   "},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "name" in response.data
+
+    def test_patch_partial_update_only_level_preserves_name(
+        self, auth_client
+    ) -> None:
+        """PATCH with only level → name unchanged."""
+        _, _, slot = _make_club_court_slot()
+        client, host = auth_client("c_ppl", level=3.50)
+        match = create_match_from_slot(slot=slot, host=host)
+        response = client.post(
+            f"/api/v1/matches/{match.pk}/companions/",
+            {"name": "Stable", "level": 3.40},
+            format="json",
+        )
+        companion_id = response.data["id"]
+        response = client.patch(
+            self.URL_TMPL.format(id=companion_id),
+            {"level": 3.75},
+            format="json",
+        )
+        assert response.status_code == 200, response.data
+        assert response.data["name"] == "Stable"
+        assert float(response.data["level"]) == 3.75
