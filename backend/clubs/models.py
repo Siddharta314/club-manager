@@ -50,6 +50,7 @@ class Club(models.Model):
 
     class Meta:
         db_table = "clubs_club"
+        ordering = ["name"]
         constraints = [
             models.UniqueConstraint(
                 fields=["name", "address"],
