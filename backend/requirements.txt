@@ -20,6 +20,9 @@ pillow==11.*
 clerk-backend-api==6.*  # 6.x for RequestState/AuthStatus API
 svix==1.*  # Webhook signature verification
 
+# API schema
+drf-spectacular==0.27.*  # OpenAPI 3 schema for DRF
+
 # Production server
 gunicorn==23.*
 

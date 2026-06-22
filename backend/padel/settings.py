@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "unfold",
     "django_q",
+    "drf_spectacular",
     # Local apps (one per capability)
     "clubs.apps.ClubsConfig",
     "match_slots.apps.MatchSlotsConfig",
@@ -164,6 +165,19 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    # PR 4: OpenAPI schema generation via drf-spectacular.
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+
+# ---------------------------------------------------------------------------
+# drf-spectacular (PR 4)
+# ---------------------------------------------------------------------------
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Padel MVP API",
+    "DESCRIPTION": "Padel match-making platform API",
+    "VERSION": "0.1.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
 
 # ---------------------------------------------------------------------------

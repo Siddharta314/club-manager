@@ -76,6 +76,15 @@ SKIP_PATH_PREFIXES: tuple[str, ...] = (
     "/static/",
     "/media/",
     "/_health/",
+    # PR 4: drf-spectacular schema + Swagger UI are public
+    # developer-facing surfaces. The mobile client never hits
+    # them; they're for API consumers and QA to explore the
+    # surface. If you want to gate them behind auth in production,
+    # remove these two prefixes and rely on DRF's
+    # ``IsAuthenticated`` (set on the spectacular views via
+    # ``permission_classes``).
+    "/api/schema/",
+    "/api/docs/",
 )
 
 
