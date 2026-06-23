@@ -10,10 +10,13 @@ Covers the business rules in ``matches.services``:
   override via ``force=True``, full / cancelled rejections.
 - ``leave_match`` — host guard, idempotency.
 - ``get_capacity_status`` — counts and derived flags.
+- ``cancel_match`` — sets ``is_cancelled``, fans out notifications,
+  second call is a silent no-op (idempotency).
 """
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest.mock import MagicMock
 
 import pytest
 from django.utils import timezone
@@ -25,12 +28,31 @@ from matches.models import Match, MatchPlayer
 from matches.services import (
     CapacityStatus,
     LevelRange,
+    cancel_match,
     create_match_from_slot,
     get_capacity_status,
     join_match,
     leave_match,
 )
 from players.models import User
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def patched_send_delay(monkeypatch):
+    """Patch ``notifications.tasks.send_notification`` so tests inspect queued calls.
+
+    Mirrors the same fixture in ``notifications/tests/test_services.py``
+    so we can assert on ``send_notification.delay.call_args_list``
+    without a live Q2 broker.
+    """
+    mock = MagicMock()
+    import notifications.tasks as tasks_module
+
+    monkeypatch.setattr(tasks_module, "send_notification", mock)
+    return mock
 
 
 # ---------------------------------------------------------------------------
@@ -376,3 +398,102 @@ class TestGetCapacityStatus:
         match.save()
         status = get_capacity_status(match)
         assert status.is_open is False
+
+
+# ---------------------------------------------------------------------------
+# cancel_match
+# ---------------------------------------------------------------------------
+@pytest.mark.django_db
+class TestCancelMatch:
+    """Tests for the ``cancel_match`` service (REQ-WIRE-006, REQ-WIRE-008).
+
+    The cancel path is the only lifecycle event that fans out
+    notifications to every MatchPlayer (host included). The
+    idempotency guard makes a second call a silent no-op so a
+    double-click from the admin UI doesn't enqueue a second batch.
+    """
+
+    def _make_match_with_players(self):
+        """Create a court + slot + host + 2 joined players + match.
+
+        Returns ``(match, host, player1, player2)`` so each test can
+        assert against the recipient set it expects.
+        """
+        _, slot = _make_court_and_slot()
+        host = User.objects.create(
+            username="c_host", email="c_host@example.com", level=3.50
+        )
+        match = create_match_from_slot(slot=slot, host=host)
+        player1 = User.objects.create(
+            username="c_p1", email="c_p1@example.com", level=3.50
+        )
+        player2 = User.objects.create(
+            username="c_p2", email="c_p2@example.com", level=3.50
+        )
+        # Use ``force=True`` to skip the level-range check; this test
+        # only cares about the cancel-side wiring.
+        join_match(match=match, user=player1, force=True)
+        join_match(match=match, user=player2, force=True)
+        return match, host, player1, player2
+
+    def test_sets_is_cancelled_to_true(
+        self, patched_send_delay, django_capture_on_commit_callbacks
+    ) -> None:
+        """cancel_match sets match.is_cancelled to True (REQ-WIRE-006)."""
+        match, _, _, _ = self._make_match_with_players()
+        with django_capture_on_commit_callbacks(execute=True):
+            cancel_match(match)
+        match.refresh_from_db()
+        assert match.is_cancelled is True
+
+    def test_enqueues_notification_on_commit(
+        self, patched_send_delay, django_capture_on_commit_callbacks
+    ) -> None:
+        """cancel_match fires send_notification.delay once per MatchPlayer on commit.
+
+        Recipient set is host + 2 joined players (3 total). The
+        on_commit callback must run inside
+        ``django_capture_on_commit_callbacks(execute=True)`` so the
+        helper actually fires under the test's rolled-back transaction.
+        """
+        match, host, player1, player2 = self._make_match_with_players()
+        # Reset the mock so the join-time ``player_joined`` calls don't
+        # pollute the cancel-side assertion.
+        patched_send_delay.reset_mock()
+        with django_capture_on_commit_callbacks(execute=True):
+            cancel_match(match)
+        # host + 2 joined = 3 notifications
+        assert patched_send_delay.delay.call_count == 3
+        called_user_ids = {
+            call.kwargs["user_id"]
+            for call in patched_send_delay.delay.call_args_list
+        }
+        assert called_user_ids == {host.pk, player1.pk, player2.pk}
+
+    def test_idempotent_second_call_is_silent(
+        self, patched_send_delay, django_capture_on_commit_callbacks
+    ) -> None:
+        """A second cancel_match call is a silent no-op (REQ-WIRE-006 idempotency).
+
+        The first call enqueues one batch; the second call MUST NOT
+        register a new ``on_commit`` and MUST NOT call ``match.save``
+        again. Resetting the mock between calls lets us see only the
+        second call's effect (which must be zero).
+        """
+        match, _, _, _ = self._make_match_with_players()
+        # First call: fires on_commit, 3 notifications queued
+        with django_capture_on_commit_callbacks(execute=True):
+            cancel_match(match)
+        first_call_count = patched_send_delay.delay.call_count
+        assert first_call_count == 3
+
+        # Reset the mock so the second call's effect is visible
+        patched_send_delay.reset_mock()
+
+        # Second call: must be a no-op (no new on_commit registration,
+        # no save, no further notifications scheduled)
+        with django_capture_on_commit_callbacks(execute=True):
+            cancel_match(match)
+
+        # No new notifications fired
+        assert patched_send_delay.delay.call_count == 0
