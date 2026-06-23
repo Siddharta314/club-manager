@@ -2,18 +2,40 @@
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
+## Pre-flight
+
+This `mobile/` directory uses pnpm 11+ with the Expo SDK 55 dev server. The root `Makefile` orchestrates the full stack; this README focuses on the mobile subtree specifically.
+
+### First time on a new machine
+
+1. `cd mobile && pnpm install` (or run `make pnpm-approve` from the repo root if pnpm prompts you — usually a no-op).
+2. `cp .env.example .env` and fill in `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...`.
+3. (Optional) If you want to run the dev server outside Docker: from this dir, `pnpm start`. If you want the full orchestrated stack: from the repo root, `make up-frontend`.
+
+### pnpm approve-builds
+
+pnpm 11+ requires explicit approval of native build scripts the first time. In this project, the four packages with build scripts (`bufferutil`, `utf-8-validate`, `browser-tabs-lock`, `core-js`) do not require interactive approval as of June 2026 — `pnpm approve-builds` returns "There are no packages awaiting approval". If a future dep needs approval, the Makefile target `make pnpm-approve` runs the command for you on the host.
+
+### About the in-container dev server
+
+When you run `make up-frontend` from the repo root, this directory is bind-mounted into a `node:22-bookworm-slim` container that runs `pnpm start --host 0.0.0.0`. Hot reload works via the bind mount. The container's `node_modules` and `.expo` are isolated in named Docker volumes to avoid host/container drift.
+
+### Native builds (iOS / Android)
+
+This is a dev-time focus on web. For native builds you need to run `expo prebuild` first (user-driven, not committed). See the [Expo docs on prebuild](https://docs.expo.dev/guides/local-app-development/) for details.
+
 ## Get started
 
 1. Install dependencies
 
    ```bash
-   npm install
+   pnpm install
    ```
 
 2. Start the app
 
    ```bash
-   npx expo start
+   pnpm start
    ```
 
 In the output, you'll find options to open the app in a
