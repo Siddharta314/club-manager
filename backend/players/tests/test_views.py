@@ -131,3 +131,65 @@ class TestMeEndpoint(TestCase):
         self.assertEqual(response.status_code, 204)
         self.user.refresh_from_db()
         self.assertEqual(self.user.push_token, "abc")
+
+    # ----------------------------------------------------------------- extra
+    def test_patch_me_notifications_returns_200(self) -> None:
+        """PATCH /me/notifications/ with new flags → 200, persisted.
+
+        The dedicated notifications endpoint (``NotificationPreferencesView``)
+        accepts partial updates of the two opt-in flags.
+        """
+        response = self.client.patch(
+            "/api/v1/me/notifications/",
+            {"notify_push": False, "notify_email": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["notify_push"], False)
+        self.assertEqual(body["notify_email"], True)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.notify_push)
+        self.assertTrue(self.user.notify_email)
+
+    def test_patch_me_notifications_only_updates_provided_fields(self) -> None:
+        """PATCH /me/notifications/ with one field doesn't reset the other.
+
+        Partial-update semantics — sending only ``notify_push`` must leave
+        ``notify_email`` untouched.
+        """
+        self.user.notify_push = True
+        self.user.notify_email = False
+        self.user.save()
+        response = self.client.patch(
+            "/api/v1/me/notifications/",
+            {"notify_push": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.notify_push)  # updated
+        self.assertFalse(self.user.notify_email)  # unchanged
+
+    def test_patch_me_push_token_with_empty_value_returns_400(self) -> None:
+        """PATCH /me/push-token/ with empty string → 400 (regression sentinel).
+
+        Documents the current contract: ``PushTokenSerializer`` declares
+        ``push_token = CharField(max_length=255, allow_blank=False)``,
+        so an empty body is rejected at validation. There is no current
+        client-facing "clear my push token" path; if the spec ever
+        introduces one (``allow_blank=True`` + handling), this test
+        will start failing and that's the signal to update the
+        serializer together with the UX.
+        """
+        self.user.push_token = "existing"
+        self.user.save()
+        response = self.client.patch(
+            "/api/v1/me/push-token/",
+            {"push_token": ""},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        # Token is unchanged — validation rejected the empty payload.
+        self.assertEqual(self.user.push_token, "existing")
