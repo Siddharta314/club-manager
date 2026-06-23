@@ -520,3 +520,117 @@ class TestCancelMatchView:
         assert response.status_code == 200, response.data
         # host + 1 joined player = 2 cancel notifications.
         assert patched_send_delay_view.delay.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# MatchListView (REQ-MATCH-001..008, SCENARIO-MATCH-01..03)
+# ---------------------------------------------------------------------------
+def _create_match_for_listing(
+    court: Court,
+    host: User,
+    start_offset_minutes: int,
+) -> Match:
+    """Create a fresh slot + open Match on ``court`` for TestMatchListView.
+
+    Each call builds its own MatchSlot so the matches are independent
+    (different ``start_time`` values → different rows in the response).
+    The match is open by default (host only, ``is_cancelled=False``).
+    """
+    from matches.services import create_match_from_slot
+
+    start = timezone.now() + timedelta(minutes=start_offset_minutes)
+    slot = MatchSlot.objects.create(
+        court=court,
+        start_time=start,
+        end_time=start + timedelta(minutes=90),
+    )
+    return create_match_from_slot(slot=slot, host=host)
+
+
+@pytest.mark.django_db
+class TestMatchListView:
+    """Tests for GET /api/v1/clubs/<int:pk>/matches/ (REQ-MATCH-001..008).
+
+    Covers SCENARIO-MATCH-01..03:
+
+    - (a) anonymous GET returns 401 (REQ-MATCH-005)
+    - (b) club with no matches → 200, ``[]``
+    - (c) club with 1 open + 1 cancelled + 1 full → 200, ``[open]``
+      (SCENARIO-MATCH-01; the conftest ``club_with_matches`` fixture
+      provides the data)
+    - (d) 3 open matches at out-of-order start_times → response is
+      sorted by ``start_time`` ASC (SCENARIO-MATCH-02)
+    - (e) GET on a nonexistent club → 404 (SCENARIO-MATCH-03)
+
+    Tests use inline helpers rather than ``setUp`` because each test
+    needs a slightly different data shape (e.g. ordering needs 3 open
+    matches; the empty test needs none).
+    """
+
+    URL_TMPL = "/api/v1/clubs/{pk}/matches/"
+
+    def test_unauthenticated_returns_401(self) -> None:
+        """Anonymous GET → 401 (REQ-MATCH-005, REQ-MATCH-008(a))."""
+        club, _, _ = _make_club_court_slot()
+        client = APIClient()
+        response = client.get(self.URL_TMPL.format(pk=club.pk))
+        assert response.status_code == 401
+
+    def test_returns_empty_list_when_no_open_matches(
+        self, auth_client
+    ) -> None:
+        """Club exists but has no matches → 200, ``[]`` (REQ-MATCH-008(b))."""
+        club, _, _ = _make_club_court_slot()
+        client, _ = auth_client("m_lm_empty", level=3.50)
+        response = client.get(self.URL_TMPL.format(pk=club.pk))
+        assert response.status_code == 200, response.data
+        assert response.json() == []
+
+    def test_returns_only_open_matches(
+        self, auth_client, club_with_matches
+    ) -> None:
+        """1 open + 1 cancelled + 1 full → 200, list of 1 (the open one).
+
+        Covers REQ-MATCH-002 (``is_cancelled=False`` + ``total<4`` filter)
+        + REQ-MATCH-008(c) + SCENARIO-MATCH-01. The conftest fixture
+        ``club_with_matches`` builds the three data points.
+        """
+        club, _court, open_match, _cancelled, _full = club_with_matches
+        client, _ = auth_client("m_lm_only", level=3.50)
+        response = client.get(self.URL_TMPL.format(pk=club.pk))
+        assert response.status_code == 200, response.data
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["id"] == open_match.pk
+
+    def test_orders_by_start_time_ascending(self, auth_client) -> None:
+        """3 open matches at T+5h, T+1h, T+3h → response is T+1h, T+3h, T+5h.
+
+        Covers REQ-MATCH-003 (``order_by("match_slot__start_time")``) +
+        REQ-MATCH-008(d) + SCENARIO-MATCH-02. Created in non-sorted
+        order to prove the endpoint sorts rather than relying on DB
+        insertion order.
+        """
+        club, court, _ = _make_club_court_slot()
+        host = User.objects.create(
+            username="m_lm_oh2", email="m_lm_oh2@example.com", level=3.50
+        )
+        # Insert in T+5h, T+1h, T+3h order — NOT the expected response order.
+        m_t5 = _create_match_for_listing(court, host, start_offset_minutes=300)
+        m_t1 = _create_match_for_listing(court, host, start_offset_minutes=60)
+        m_t3 = _create_match_for_listing(court, host, start_offset_minutes=180)
+
+        client, _ = auth_client("m_lm_ord", level=3.50)
+        response = client.get(self.URL_TMPL.format(pk=club.pk))
+        assert response.status_code == 200, response.data
+        data = response.json()
+        assert len(data) == 3
+        assert data[0]["id"] == m_t1.pk  # T+1h first
+        assert data[1]["id"] == m_t3.pk  # T+3h second
+        assert data[2]["id"] == m_t5.pk  # T+5h last
+
+    def test_returns_404_for_nonexistent_club(self, auth_client) -> None:
+        """GET /api/v1/clubs/99999/matches/ → 404 (REQ-MATCH-008(e), SCENARIO-MATCH-03)."""
+        client, _ = auth_client("m_lm_404", level=3.50)
+        response = client.get(self.URL_TMPL.format(pk=99999))
+        assert response.status_code == 404
