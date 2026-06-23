@@ -12,6 +12,8 @@ Routes
   ``/clubs/{club_pk}/courts/{court_pk}/schedule/{pk}/`` —
   ``ScheduleViewSet`` nested under court.
 - ``/clubs/{pk}/slots/`` — ``ClubSlotListView`` (read-only slot listing).
+- ``/clubs/{pk}/matches/`` — ``MatchListView`` (read-only open-match
+  listing). Mobile-match-browse-signup PR 6.
 - ``/clubs/{pk}/admins/`` — ``ClubAdminView.post`` (add a secondary admin).
 - ``/clubs/{pk}/admins/{user_id}/`` — ``ClubAdminView.delete`` (remove).
 """
@@ -19,6 +21,8 @@ from __future__ import annotations
 
 from django.urls import path
 from rest_framework.routers import DefaultRouter
+
+from matches.views import MatchListView
 
 from . import views
 
@@ -91,6 +95,16 @@ urlpatterns = [
         "clubs/<int:pk>/slots/",
         views.ClubSlotListView.as_view(),
         name="club-slots",
+    ),
+    # Open-match listing at the club — see ``matches.views.MatchListView``.
+    # Mounted here (not in matches/urls.py) following the existing
+    # ``clubs/<int:pk>/slots/`` precedent — URL near the resource being
+    # read (the club). The view itself lives in the matches app; this
+    # module just owns the route.
+    path(
+        "clubs/<int:pk>/matches/",
+        MatchListView.as_view(),
+        name="club-matches",
     ),
     # Secondary admin endpoints
     path(
