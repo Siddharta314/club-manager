@@ -45,6 +45,69 @@ notifications.
 | `notifications` | NotificationLog | Push + email audit trail |
 | `auth_clerk` | — | JWT middleware + webhooks land in PR 2 |
 
+## Single-command dev (recommended)
+
+The fastest way to run the full stack (backend + Expo dev server). One `make` invocation, one terminal, one command.
+
+### One-time setup (per machine)
+
+1. **Install the `make` binary** (if not already present). On Debian/Ubuntu: `sudo apt install make`. On macOS: comes with Xcode Command Line Tools.
+2. **Get a Clerk dev instance** at [dashboard.clerk.com](https://dashboard.clerk.com). Copy the `pk_test_*` publishable key.
+3. **Create `mobile/.env`** from the example:
+   ```bash
+   cp mobile/.env.example mobile/.env
+   ```
+   Then edit `mobile/.env` and set:
+   ```
+   EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_your_actual_key_here
+   ```
+
+### Every day
+
+From the repo root:
+
+```bash
+make up        # starts everything (db, web, qcluster, frontend)
+make logs      # tail all service logs
+make down      # stop everything (preserves data in named volumes)
+make help      # all 12 targets with one-line descriptions
+```
+
+Then open:
+
+- **Expo dev server** — http://localhost:8081
+- **Django admin** — http://localhost:8000/admin
+- **Q2 dashboard** — http://localhost:8000/admin/django_q/
+
+### Backend only
+
+If you don't need the mobile dev server (e.g., backend-only work):
+
+```bash
+make up-backend
+```
+
+### About the two compose files
+
+`docker-compose.yml` is backend-only and stays untouched (no risk to PRs 2–4 of the padel-mvp roadmap). `docker-compose.frontend.yml` adds the Expo / Metro dev server. The root `Makefile` joins them via `--project-name club` so they share the same `club_default` Docker network — meaning the frontend container reaches the Django service at `http://web:8000/api/v1` via in-network DNS.
+
+### Optional: `pnpm approve-builds`
+
+If `pnpm install` inside the frontend container ever prompts you about pending build scripts, run on the host:
+
+```bash
+make pnpm-approve    # interactive, prompts you to approve each package
+```
+
+Then commit the resulting `mobile/pnpm-workspace.yaml`. As of June 2026 this is a no-op in this project (no packages awaiting approval), but the escape hatch exists for future deps.
+
+### Troubleshooting
+
+- **Port `8081` already in use** — another Expo process is running. Stop it or use a different port via `EXPO_DEV_SERVER_PORT`.
+- **Frontend fails with "service web has no healthcheck"** — your `docker-compose.yml` is out of date. Pull and re-run `make up`.
+- **`make: command not found`** — install `make` (see step 1 above).
+- **Metro hot reload is slow on Mac/Windows** — the compose file already sets `WATCHMAN_DISABLE=1`. If still slow, check Docker Desktop's file-sharing config.
+
 ## Quickstart (Docker)
 
 ```bash
