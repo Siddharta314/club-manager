@@ -1,6 +1,7 @@
 import { useUser, useAuth } from '@clerk/expo';
 import { useQuery } from '@tanstack/react-query';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { apiGet, ApiError } from '@/lib/api';
 
@@ -13,6 +14,7 @@ type Me = {
 
 export default function Home() {
   const { user } = useUser();
+  const router = useRouter();
   const me = useQuery<Me, ApiError>({
     queryKey: ['me'],
     queryFn: () => apiGet<Me>('/me/'),
@@ -24,6 +26,12 @@ export default function Home() {
       {me.isLoading && <ActivityIndicator />}
       {me.data && <Text style={styles.level}>Level: {me.data.level}</Text>}
       {me.error && <Text style={styles.error}>Error: {me.error.message}</Text>}
+      <Pressable
+        style={styles.browseButton}
+        onPress={() => router.push('/(app)/matches')}
+      >
+        <Text style={styles.browseButtonText}>Ver partidos disponibles</Text>
+      </Pressable>
     </View>
   );
 }
@@ -33,4 +41,16 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 24, fontWeight: '600', marginBottom: 16 },
   level: { fontSize: 18, marginTop: 8 },
   error: { fontSize: 14, color: '#c00', marginTop: 8 },
+  browseButton: {
+    marginTop: 20,
+    padding: 14,
+    backgroundColor: '#1d4ed8',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  browseButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });
