@@ -45,6 +45,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/auth/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   qcluster:
     build:
