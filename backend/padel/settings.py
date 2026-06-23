@@ -17,7 +17,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(
     DEBUG=(bool, False),
-    ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
+    ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1", "0.0.0.0", "web", "172.17.0.1"]),
     CORS_ALLOWED_ORIGINS=(list, ["http://localhost:8081"]),
     TIME_ZONE=(str, "Europe/Madrid"),
     CLERK_JWT_AUDIENCE=(list, []),
