@@ -27,6 +27,7 @@ from match_slots.models import MatchSlot
 from matches.models import Match, MatchPlayer
 from matches.services import create_match_from_slot, join_match
 from notifications.services import (
+    enqueue_match_cancelled,
     enqueue_match_created,
     enqueue_player_joined,
     enqueue_player_left,
@@ -211,6 +212,47 @@ class TestEnqueuePlayerJoined:
         payload = patched_send_delay.delay.call_args.kwargs["payload"]
         assert payload["joining_user_id"] == joining.pk
         assert "Alex" in payload["joining_user_name"]
+
+
+# ---------------------------------------------------------------------------
+# enqueue_match_cancelled
+# ---------------------------------------------------------------------------
+@pytest.mark.django_db
+class TestEnqueueMatchCancelled:
+    """Tests for ``enqueue_match_cancelled`` (REQ-WIRE-001, REQ-WIRE-005)."""
+
+    def test_enqueues_one_task_per_player_including_host(
+        self, patched_send_delay
+    ) -> None:
+        """enqueue_match_cancelled schedules one Q2 task per MatchPlayer (host included)."""
+        club, members = _make_club_with_members(member_count=3)
+        host = members[0]
+        match, _ = _make_match_with_court(club, host)
+        # Add the 2 joined players (host is auto-added by create_match_from_slot).
+        join_match(match=match, user=members[1], force=True)
+        join_match(match=match, user=members[2], force=True)
+        patched_send_delay.reset_mock()
+
+        enqueue_match_cancelled(match.pk)
+
+        # host + 2 joined = 3 notifications.
+        assert patched_send_delay.delay.call_count == 3
+        called_user_ids = {
+            call.kwargs["user_id"]
+            for call in patched_send_delay.delay.call_args_list
+        }
+        assert called_user_ids == {host.pk, members[1].pk, members[2].pk}
+
+    def test_event_type_is_match_cancelled(self, patched_send_delay) -> None:
+        """Every scheduled task has event_type='match_cancelled'."""
+        club, members = _make_club_with_members(member_count=2)
+        host = members[0]
+        match, _ = _make_match_with_court(club, host)
+        patched_send_delay.reset_mock()
+
+        enqueue_match_cancelled(match.pk)
+        for call in patched_send_delay.delay.call_args_list:
+            assert call.kwargs["event_type"] == "match_cancelled"
 
 
 # ---------------------------------------------------------------------------
