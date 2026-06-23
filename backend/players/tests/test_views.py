@@ -94,7 +94,11 @@ class TestMeEndpoint(TestCase):
         self.assertEqual(body["email"], "ana@test.com")
         self.assertEqual(body["first_name"], "Ana")
         self.assertEqual(body["last_name"], "García")
-        self.assertEqual(body["level"], 3.5)
+        # ``LevelField`` is a DecimalField — DRF serializes Decimals as
+        # strings to preserve precision (``"3.50"`` not ``3.5``). The
+        # Mobile type expects a number and parses on its end; this is
+        # the pre-existing serialization contract — out of scope here.
+        self.assertEqual(body["level"], "3.50")
         self.assertEqual(body["club"], self.club.id)
         self.assertEqual(body["role"], "player")
         self.assertIn("notify_push", body)

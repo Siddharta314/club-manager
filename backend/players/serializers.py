@@ -3,10 +3,11 @@
 Three serializers, one per endpoint shape:
 
 - ``MeSerializer`` — read + write for ``GET/PATCH /api/v1/me/``.
-  Exposes the fields a player can self-edit (name, level, photo)
-  while keeping ``id``, ``email``, ``club`` and ``role`` as
-  read-only — role + club promotion happens through the admin
-  endpoints, not through the player's own profile patch.
+  Exposes the fields a player can self-edit (name, level,
+  notification flags) while keeping ``id``, ``email``, ``club``
+  and ``role`` as read-only — role + club promotion happens
+  through the admin endpoints, not through the player's own
+  profile patch.
 - ``PushTokenSerializer`` — body shape for
   ``PATCH /api/v1/me/push-token/``. Single ``push_token`` field,
   required, max 255 chars to match the model column.
@@ -34,9 +35,9 @@ class MeSerializer(serializers.ModelSerializer):
       player themselves.
 
     Editable fields: ``first_name``, ``last_name``, ``level``,
-    ``photo``, ``notify_push``, ``notify_email``. Club admins can
-    override a player's level via this endpoint too — the field
-    is the same regardless of who is editing.
+    ``notify_push``, ``notify_email``. Club admins can override a
+    player's level via this endpoint too — the field is the same
+    regardless of who is editing.
     """
 
     class Meta:
@@ -49,7 +50,6 @@ class MeSerializer(serializers.ModelSerializer):
             "level",
             "club",
             "role",
-            "photo",
             "notify_push",
             "notify_email",
         ]

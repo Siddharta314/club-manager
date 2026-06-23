@@ -3,7 +3,7 @@
 Endpoints
 ---------
 - ``GET   /api/v1/me/``                 — full profile of the request user.
-- ``PATCH /api/v1/me/``                 — update profile (name, level, photo,
+- ``PATCH /api/v1/me/``                 — update profile (name, level,
                                          notification preferences).
 - ``PATCH /api/v1/me/push-token/``      — register the Expo push token.
 - ``PATCH /api/v1/me/notifications/``   — toggle ``notify_push`` /
@@ -40,9 +40,8 @@ class MeView(APIView):
     """``GET /api/v1/me/`` + ``PATCH /api/v1/me/``.
 
     GET returns the full profile (id, email, name, level, club,
-    role, photo, notification flags). PATCH accepts a partial
-    update — the mobile client can send just ``level`` after a
-    match, or just ``photo`` after editing their avatar.
+    role, notification flags). PATCH accepts a partial update
+    — the mobile client can send just ``level`` after a match.
     """
 
     permission_classes = [IsAuthenticated]
