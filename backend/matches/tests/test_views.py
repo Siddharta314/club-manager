@@ -12,6 +12,7 @@ Covers the HTTP layer for the match lifecycle endpoints:
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest.mock import MagicMock
 
 import pytest
 from django.utils import timezone
@@ -396,3 +397,126 @@ class TestAdminMatchActions:
         )
         assert response.status_code == 400
         assert "user_id" in str(response.data).lower()
+
+
+# ---------------------------------------------------------------------------
+# CancelMatchView — cancel-via-view integration (REQ-WIRE-009, REQ-WIRE-010)
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def patched_send_delay_view(monkeypatch):
+    """Local copy of ``patched_send_delay`` for view tests.
+
+    Mirrors ``matches/tests/test_services.py::patched_send_delay`` so
+    we can assert on ``send_notification.delay.call_args_list``
+    without a live Q2 broker. Kept module-local (not in conftest.py)
+    so the matches test suite stays self-contained — same trade-off
+    the ``auth_client`` fixture makes above.
+    """
+    mock = MagicMock()
+    import notifications.tasks as tasks_module
+
+    monkeypatch.setattr(tasks_module, "send_notification", mock)
+    return mock
+
+
+def _build_admin_match_with_player(auth_client):
+    """Build: dedicated club + admin user (admin of that club) + host
+    User + joined player User + match with host + player joined.
+
+    Returns ``(admin_client, admin_user, match, host, joined_player)``
+    so each test can drive the right assertions.
+
+    Mirrors the existing ``TestAdminMatchActions.test_cancel_by_admin``
+    pattern: a dedicated club the admin owns, a court + slot in that
+    club, a host User, a second joined player User, and the match
+    built via ``create_match_from_slot`` + ``join_match(force=True)``
+    (``force=True`` skips the level-range check; this helper only
+    cares about cancel-side wiring).
+    """
+    from clubs.models import Court as _Court
+    from matches.services import create_match_from_slot, join_match
+
+    admin_client, admin = auth_client("m_cv_adm", role=User.Role.CLUB_ADMIN)
+    admin_club = Club.objects.create(name="CV", address="CV 1", created_by=admin)
+    admin_club.admins.add(admin)
+    court = _Court.objects.create(club=admin_club, name="CV Court")
+    start = timezone.now() + timedelta(hours=1)
+    slot = MatchSlot.objects.create(
+        court=court,
+        start_time=start,
+        end_time=start + timedelta(minutes=90),
+    )
+    host = User.objects.create(
+        username="m_cv_h", email="m_cv_h@example.com", level=3.50
+    )
+    joined = User.objects.create(
+        username="m_cv_p", email="m_cv_p@example.com", level=3.50
+    )
+    match = create_match_from_slot(slot=slot, host=host)
+    join_match(match=match, user=joined, force=True)
+    return admin_client, admin, match, host, joined
+
+
+@pytest.mark.django_db
+class TestCancelMatchView:
+    """Integration tests for ``CancelMatchView.post`` (REQ-WIRE-009, REQ-WIRE-010).
+
+    The non-admin 403 path is already covered by the existing
+    ``TestAdminMatchActions::test_cancel_by_non_admin_returns_403``
+    (REQ-WIRE-009 scenario 2). Here we focus on the happy path:
+    admin POST cancels the match AND fires ``send_notification.delay``
+    once per ``MatchPlayer``.
+
+    The notification-fan-out test
+    (``test_post_triggers_notifications_for_all_players``) is currently
+    RED because the view mutates ``match.is_cancelled`` inline — no
+    ``transaction.on_commit`` is registered so ``send_notification.delay``
+    is never called. The view refactor (Commit 7, Task 7) will turn
+    this GREEN by delegating to ``cancel_match(match)`` which handles
+    the save + the on_commit registration + the idempotency guard.
+    """
+
+    URL_TMPL = "/api/v1/matches/{id}/cancel/"
+
+    def test_post_as_admin_cancels_match(self, auth_client) -> None:
+        """Admin POST returns 200 and sets ``match.is_cancelled=True``.
+
+        Mirrors the existing ``TestAdminMatchActions::test_cancel_by_admin``
+        happy-path assertion: 200 status code + ``is_cancelled`` flipped
+        after a ``refresh_from_db``. Currently passes regardless of the
+        view refactor — the inline mutation already sets the flag —
+        but we keep this as a regression net for the 200 status code
+        after the service-delegation refactor.
+        """
+        admin_client, _admin, match, _host, _joined = _build_admin_match_with_player(
+            auth_client
+        )
+        response = admin_client.post(self.URL_TMPL.format(id=match.pk))
+        assert response.status_code == 200, response.data
+        match.refresh_from_db()
+        assert match.is_cancelled is True
+
+    def test_post_triggers_notifications_for_all_players(
+        self,
+        auth_client,
+        patched_send_delay_view,
+        django_capture_on_commit_callbacks,
+    ) -> None:
+        """Admin POST fires ``send_notification.delay`` for every MatchPlayer.
+
+        The on_commit callback from ``cancel_match`` only fires inside
+        ``django_capture_on_commit_callbacks(execute=True)`` (matches
+        the pattern in ``clubs/tests/test_views.py:191-209``). The
+        match has host + 1 joined player = 2 recipients. The current
+        view mutates ``match.is_cancelled`` inline so this test FAILS
+        with ``call_count == 0`` (expected: 2) until the view
+        delegates to ``cancel_match`` (Task 7).
+        """
+        admin_client, _admin, match, _host, _joined = _build_admin_match_with_player(
+            auth_client
+        )
+        with django_capture_on_commit_callbacks(execute=True):
+            response = admin_client.post(self.URL_TMPL.format(id=match.pk))
+        assert response.status_code == 200, response.data
+        # host + 1 joined player = 2 cancel notifications.
+        assert patched_send_delay_view.delay.call_count == 2
