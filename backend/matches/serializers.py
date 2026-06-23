@@ -20,7 +20,24 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
+from clubs.models import Court
+
 from .models import Match, MatchPlayer
+
+
+class CourtBriefSerializer(serializers.ModelSerializer):
+    """Read-only projection of a ``Court`` for nested use on ``MatchSerializer``.
+
+    Per design §1 (mobile-match-browse-signup), the ``MatchListView`` response
+    needs a ``court: { id, name }`` block so the mobile ``MatchCard`` can
+    render the court name without a separate round trip per match. Keeps the
+    field list tight (id + name only) to avoid leaking unrelated court
+    metadata into the match payload.
+    """
+
+    class Meta:
+        model = Court
+        fields = ("id", "name")
 
 
 class MatchPlayerSerializer(serializers.ModelSerializer):
@@ -46,6 +63,7 @@ class MatchSerializer(serializers.ModelSerializer):
     players = MatchPlayerSerializer(many=True, read_only=True)
     companions = serializers.SerializerMethodField()
     court_id = serializers.IntegerField(source="slot.court_id", read_only=True)
+    court = CourtBriefSerializer(read_only=True)
     start_time = serializers.DateTimeField(source="slot.start_time", read_only=True)
     end_time = serializers.DateTimeField(source="slot.end_time", read_only=True)
     capacity = serializers.SerializerMethodField()
@@ -55,6 +73,7 @@ class MatchSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "court_id",
+            "court",
             "start_time",
             "end_time",
             "level_min",

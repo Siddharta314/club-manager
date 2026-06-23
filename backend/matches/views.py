@@ -29,6 +29,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.db.models import Count, F
+from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
@@ -37,6 +39,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from clubs.models import Club
 from match_slots.models import MatchSlot
 from players.models import User
 
@@ -93,6 +96,63 @@ class CreateMatchFromSlotView(APIView):
         return Response(
             MatchSerializer(match).data,
             status=status.HTTP_201_CREATED,
+        )
+
+
+# ---------------------------------------------------------------------------
+# List
+# ---------------------------------------------------------------------------
+class MatchListView(generics.ListAPIView):
+    """``GET /api/v1/clubs/<int:pk>/matches/`` — open matches at a club.
+
+    Filter contract (server-side, source of truth per REQ-MATCH-002):
+    - ``match_slot__court__club_id == pk``
+    - ``is_cancelled == False``
+    - ``player_count + companion_count < 4`` (i.e., capacity is open)
+
+    Order: ``match_slot__start_time`` ASC (earliest first per REQ-MATCH-003).
+
+    Query optimisation:
+    - ``select_related("match_slot__court")`` joins through the slot to the
+      court so the new ``court`` field on ``MatchSerializer`` doesn't
+      trigger N+1.
+    - ``prefetch_related("players__user", "companions")`` covers the
+      reverse-relation walks in the serializer.
+
+    ``slot`` is a Python property, NOT an ORM field — we MUST use
+    ``match_slot__court__club_id`` (not ``slot__court__club_id``), matching
+    the existing ``MatchDetailView`` pattern.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = MatchSerializer
+    # The spec requires a plain JSON array of match objects
+    # (``REQ-MATCH-001``: "a JSON array of objects"). The project's
+    # default is ``PageNumberPagination`` (wraps the list in
+    # ``{count, next, previous, results}``); we opt out here so the
+    # mobile client's `useQuery<Match[]>` type stays accurate without
+    # unwrapping ``results`` at every call site.
+    pagination_class = None
+
+    def get_queryset(self):
+        club_id = self.kwargs["pk"]
+        if not Club.objects.filter(pk=club_id).exists():
+            raise Http404("Club not found")
+        return (
+            Match.objects
+            .select_related("match_slot__court")
+            .prefetch_related("players__user", "companions")
+            .annotate(
+                player_count=Count("players", distinct=True),
+                companion_count=Count("companions", distinct=True),
+            )
+            .annotate(total=F("player_count") + F("companion_count"))
+            .filter(
+                match_slot__court__club_id=club_id,
+                is_cancelled=False,
+                total__lt=4,
+            )
+            .order_by("match_slot__start_time")
         )
 
 
