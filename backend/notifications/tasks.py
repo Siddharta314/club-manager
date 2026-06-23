@@ -24,11 +24,13 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
 from django.core.mail import send_mail
 from django.utils import timezone
+from django.utils.formats import date_format
 
 from notifications.expo_client import (
     ExpoPushMessage,
@@ -174,11 +176,12 @@ def send_notification(
 
 
 def _event_title(event_type: str) -> str:
-    """Spanish titles for the three MVP events."""
+    """Spanish titles for the MVP events."""
     titles = {
         "match_created": "Nuevo partido disponible",
         "player_joined": "Un jugador se apuntó",
         "player_left": "Un jugador se bajó",
+        "match_cancelled": "Partido cancelado",
     }
     return titles.get(event_type, "Notificación")
 
@@ -194,6 +197,13 @@ def _event_body(event_type: str, payload: dict[str, Any]) -> str:
     if event_type == "player_left":
         name = payload.get("leaving_user_name", "?")
         return f"{name} se bajó del partido"
+    if event_type == "match_cancelled":
+        court = payload.get("court_name", "?")
+        start = date_format(
+            datetime.fromisoformat(payload["start_time"]),
+            "SHORT_DATETIME_FORMAT",
+        )
+        return f"Se canceló el partido en {court} del {start}."
     return json.dumps(payload)
 
 

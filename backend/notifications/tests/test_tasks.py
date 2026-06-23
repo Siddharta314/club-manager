@@ -17,6 +17,7 @@ Covers the per-user dispatch logic:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone as dt_timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -24,7 +25,7 @@ from django.core import mail
 
 from notifications.expo_client import ExpoPushTicket
 from notifications.models import NotificationLog
-from notifications.tasks import send_notification
+from notifications.tasks import _event_body, _event_title, send_notification
 from players.models import User
 
 
@@ -275,3 +276,46 @@ class TestEventBody:
             payload={"leaving_user_name": "Beatriz"},
         )
         assert "Beatriz" in mail.outbox[0].body
+
+
+# ---------------------------------------------------------------------------
+# match_cancelled title and body
+# ---------------------------------------------------------------------------
+@pytest.mark.django_db
+class TestEventTitleAndBodyMatchCancelled:
+    """REQ-WIRE-003 / REQ-WIRE-004: ``match_cancelled`` template renders
+    Spanish title and a body containing court name + human-readable start."""
+
+    def test_title_is_spanish_literal(self) -> None:
+        assert _event_title("match_cancelled") == "Partido cancelado"
+
+    def test_body_includes_court_name_and_formatted_start_time(self) -> None:
+        payload = {
+            "court_name": "C1",
+            "start_time": datetime(
+                2026, 7, 1, 19, 30, tzinfo=dt_timezone.utc
+            ).isoformat(),
+        }
+        body = _event_body("match_cancelled", payload)
+        assert "C1" in body
+        # Body must include a non-trivial time/date substring (not just "C1").
+        assert len(body) > len("C1") + 5
+
+    def test_body_is_sent_through_send_notification(
+        self,
+    ) -> None:
+        """End-to-end: send_notification renders the body via _event_body."""
+        with patch("notifications.tasks.send_expo_push_notifications") as mock_send_push:
+            mock_send_push.return_value = []
+            user = _make_user()
+            send_notification(
+                user_id=user.pk,
+                event_type="match_cancelled",
+                payload={
+                    "court_name": "C1",
+                    "start_time": datetime(
+                        2026, 7, 1, 19, 30, tzinfo=dt_timezone.utc
+                    ).isoformat(),
+                },
+            )
+        assert "C1" in mail.outbox[0].body
