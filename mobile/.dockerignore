@@ -1,0 +1,36 @@
+node_modules
+.pnpm-store
+
+# Expo
+.expo
+.expo-shared
+dist
+web-build
+*.tsbuildinfo
+expo-env.d.ts
+
+# Metro
+.metro-health-check*
+.metro-cache
+
+# Native (prebuild outputs)
+ios
+android
+
+# Git
+.git
+.gitignore
+
+# Editor / OS
+.DS_Store
+.idea
+.vscode
+*.log
+
+# Local env
+.env
+.env*.local
+
+# Test / coverage
+coverage
+*.lcov
