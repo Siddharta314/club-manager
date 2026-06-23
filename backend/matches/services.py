@@ -257,6 +257,51 @@ def _enqueue_player_left_safe(match_id: int, user_id: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Cancel (admin / host path — fans out to every MatchPlayer)
+# ---------------------------------------------------------------------------
+@transaction.atomic
+def cancel_match(match: Match) -> None:
+    """Cancel a match and enqueue notifications for every MatchPlayer (host included).
+
+    Idempotent: a second call on an already-cancelled match is a silent
+    no-op (no save, no ``on_commit`` registered). The guard is the
+    FIRST statement so admin double-clicks or mobile retries can't
+    enqueue a second notification batch. See REQ-WIRE-006.
+    """
+    if match.is_cancelled:
+        return
+    match.is_cancelled = True
+    match.save(update_fields=["is_cancelled"])
+    transaction.on_commit(
+        lambda: _enqueue_match_cancelled_safe(match.pk)
+    )
+
+
+def _enqueue_match_cancelled_safe(match_id: int) -> None:
+    """Defensive wrapper around ``enqueue_match_cancelled``.
+
+    See ``_enqueue_match_created_safe`` for rationale. The lazy
+    import inside the body breaks the ``matches.services`` ↔
+    ``notifications.services`` import cycle (matches is imported by
+    notifications.services already, so a top-level import here would
+    raise at module load time).
+    """
+    import logging
+
+    from notifications.services import enqueue_match_cancelled
+
+    logger = logging.getLogger(__name__)
+    try:
+        enqueue_match_cancelled(match_id=match_id)
+    except Exception:  # pragma: no cover - defensive
+        logger.warning(
+            "enqueue_match_cancelled failed for match %s",
+            match_id,
+            exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Capacity snapshot
 # ---------------------------------------------------------------------------
 def get_capacity_status(match: Match) -> CapacityStatus:
