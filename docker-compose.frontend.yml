@@ -1,0 +1,64 @@
+# Frontend-only docker-compose for the Expo / Metro dev server.
+# Joins the same `club_default` network as the backend services defined
+# in docker-compose.yml. The Makefile pins --project-name club on every
+# invocation so both files share the same network namespace.
+#
+# Usage (from repo root):
+#   make up-frontend    # frontend only (backend must be up)
+#   make up             # full stack
+
+services:
+  frontend:
+    build:
+      context: ./mobile
+      dockerfile: Dockerfile
+    container_name: club-frontend
+    restart: unless-stopped
+    volumes:
+      # Bind mount for hot reload of the source tree.
+      - ./mobile:/app
+      # Named volumes for caches that should NOT be bind-mounted (avoids
+      # host/container drift on node_modules and .expo).
+      - mobile_node_modules:/app/node_modules
+      - mobile_expo:/app/.expo
+    environment:
+      # Backend reachable via the in-network DNS name `web` (the Django
+      # service defined in docker-compose.yml). This is the default
+      # for the `make up` path; for bare-host dev, override this in
+      # mobile/.env to http://localhost:8000/api/v1.
+      EXPO_PUBLIC_API_URL: http://web:8000/api/v1
+
+      # Clerk publishable key must be set in the host env. The Makefile
+      # does not export it; pass it before `make up`:
+      #   export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+      # If empty, ClerkProvider fails fast at module load (intentional).
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+
+      # Force non-interactive pnpm scripts. Belt-and-suspenders alongside
+      # the committed pnpm-workspace.yaml (when present).
+      CI: "1"
+      NODE_ENV: development
+
+      # Avoid watchman hangs on Mac/Windows bind-mounts. Linux is unaffected.
+      WATCHMAN_DISABLE: "1"
+    ports:
+      - "8081:8081"      # Metro bundler (web + native)
+      - "19000:19000"    # Expo dev menu
+      - "19001:19001"    # Metro inspector
+      - "19002:19002"    # Expo dev tools
+    depends_on:
+      # Waits for the backend `web` service to report healthy before
+      # starting Metro. The healthcheck lands in commit #5 of this change
+      # (docker-compose.yml). Until then, `condition: service_healthy`
+      # will cause `make up` to fail with "service web has no healthcheck
+      # declared" — that's expected and the user should apply the rest
+      # of the change first.
+      web:
+        condition: service_healthy
+
+    # No `networks:` block — defaults to the project network
+    # (`club_default` because of --project-name club in the Makefile).
+
+volumes:
+  mobile_node_modules:
+  mobile_expo:
