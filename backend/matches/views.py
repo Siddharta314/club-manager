@@ -44,7 +44,7 @@ from .idempotency import IDEMPOTENCY_HEADER, get_cached as get_idempotent_respon
 from .idempotency import store as store_idempotent_response
 from .models import Match
 from .serializers import MatchSerializer
-from .services import create_match_from_slot, join_match, leave_match
+from .services import cancel_match, create_match_from_slot, join_match, leave_match
 
 
 # ---------------------------------------------------------------------------
@@ -238,8 +238,7 @@ class CancelMatchView(APIView):
             )
 
         _require_club_admin(request.user, match)
-        match.is_cancelled = True
-        match.save(update_fields=["is_cancelled"])
+        cancel_match(match)
         return Response(MatchSerializer(match).data, status=status.HTTP_200_OK)
 
 
