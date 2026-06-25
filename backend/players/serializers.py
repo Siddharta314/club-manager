@@ -59,14 +59,14 @@ class MeSerializer(serializers.ModelSerializer):
 class PushTokenSerializer(serializers.Serializer):
     """Serializer for ``PATCH /api/v1/me/push-token/``.
 
-    Single field, required (no blank). Max length mirrors the
-    ``User.push_token`` column. We use a plain ``Serializer``
-    (not ``ModelSerializer``) because the endpoint only sets one
-    column — there's no benefit to the auto-generated fields
-    here.
+    Single field, ``allow_blank`` so empty string clears the Expo
+    Push token. Max length mirrors the ``User.push_token`` column.
+    We use a plain ``Serializer`` (not ``ModelSerializer``) because
+    the endpoint only sets one column — there's no benefit to the
+    auto-generated fields here.
     """
 
-    push_token = serializers.CharField(max_length=255, allow_blank=False)
+    push_token = serializers.CharField(max_length=255, allow_blank=True)
 
 
 class NotificationPreferencesSerializer(serializers.ModelSerializer):

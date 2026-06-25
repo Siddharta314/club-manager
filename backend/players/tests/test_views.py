@@ -171,16 +171,15 @@ class TestMeEndpoint(TestCase):
         self.assertFalse(self.user.notify_push)  # updated
         self.assertFalse(self.user.notify_email)  # unchanged
 
-    def test_patch_me_push_token_with_empty_value_returns_400(self) -> None:
-        """PATCH /me/push-token/ with empty string → 400 (regression sentinel).
+    def test_patch_me_push_token_with_empty_value_returns_204_and_clears(self) -> None:
+        """PATCH /me/push-token/ with empty string → 204 and clears the token.
 
-        Documents the current contract: ``PushTokenSerializer`` declares
-        ``push_token = CharField(max_length=255, allow_blank=False)``,
-        so an empty body is rejected at validation. There is no current
-        client-facing "clear my push token" path; if the spec ever
-        introduces one (``allow_blank=True`` + handling), this test
-        will start failing and that's the signal to update the
-        serializer together with the UX.
+        Empty string clears the Expo Push token. With
+        ``allow_blank=True``, an empty PATCH sets ``push_token`` to ``""``
+        so the notifications pipeline (``if user.push_token:``) treats the
+        user as having no push token. Aligns with the model default
+        (``CharField(blank=True, default="")``) and with the model-level
+        contract that an empty string is a valid "no token" state.
         """
         self.user.push_token = "existing"
         self.user.save()
@@ -189,7 +188,27 @@ class TestMeEndpoint(TestCase):
             {"push_token": ""},
             format="json",
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 204)
         self.user.refresh_from_db()
-        # Token is unchanged — validation rejected the empty payload.
-        self.assertEqual(self.user.push_token, "existing")
+        # Token is cleared — serializer allows blank and the empty
+        # payload is persisted as "".
+        self.assertEqual(self.user.push_token, "")
+
+    def test_patch_me_push_token_with_non_empty_value_still_returns_204(self) -> None:
+        """Non-empty push_token PATCH → 204 and persists the value (positive case).
+
+        Triangulation: documents the existing positive contract explicitly
+        so the contract is covered in BOTH directions — empty clears,
+        non-empty sets. Without this test, a future regression that
+        flips back to ``allow_blank=False`` (or a stricter ``allow_null``
+        setting) would only be caught by the empty-string case; this
+        test guards the happy path alongside it.
+        """
+        response = self.client.patch(
+            "/api/v1/me/push-token/",
+            {"push_token": "ExponentPushToken[abc]"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 204)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.push_token, "ExponentPushToken[abc]")
