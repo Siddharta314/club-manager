@@ -10,6 +10,7 @@ type Me = {
   email: string;
   name: string;
   level: number;
+  role: string;
 };
 
 export default function Home() {
@@ -19,6 +20,8 @@ export default function Home() {
     queryKey: ['me'],
     queryFn: () => apiGet<Me>('/me/'),
   });
+
+  const isClubAdmin = me.data?.role === 'club_admin';
 
   return (
     <View style={styles.container}>
@@ -38,6 +41,14 @@ export default function Home() {
       >
         <Text style={styles.profileButtonText}>Mi perfil</Text>
       </Pressable>
+      {isClubAdmin && (
+        <Pressable
+          style={styles.browseButton}
+          onPress={() => router.push('/(app)/admin')}
+        >
+          <Text style={styles.browseButtonText}>Administrar club</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
