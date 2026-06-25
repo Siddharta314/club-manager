@@ -32,6 +32,12 @@ export default function Home() {
       >
         <Text style={styles.browseButtonText}>Ver partidos disponibles</Text>
       </Pressable>
+      <Pressable
+        style={styles.profileButton}
+        onPress={() => router.push('/(app)/profile')}
+      >
+        <Text style={styles.profileButtonText}>Mi perfil</Text>
+      </Pressable>
     </View>
   );
 }
@@ -50,6 +56,20 @@ const styles = StyleSheet.create({
   },
   browseButtonText: {
     color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  profileButton: {
+    marginTop: 12,
+    padding: 14,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#1d4ed8',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  profileButtonText: {
+    color: '#1d4ed8',
     fontSize: 16,
     fontWeight: '600',
   },
