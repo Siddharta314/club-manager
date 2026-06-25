@@ -45,3 +45,24 @@ export async function apiPost<T, B>(
   }
   return res.json() as Promise<T>;
 }
+
+export async function apiPatch<T, B>(path: string, body: B): Promise<T> {
+  const { getToken } = useAuth();
+  const token = await getToken();
+  if (!token) throw { status: 401, message: 'No session token' } satisfies ApiError;
+
+  const res = await fetch(`${process.env.EXPO_PUBLIC_API_URL}${path}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw { status: res.status, message: text || res.statusText } satisfies ApiError;
+  }
+  return res.json() as Promise<T>;
+}
