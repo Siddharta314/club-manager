@@ -9,14 +9,16 @@ type Me = {
   email: string;
   first_name: string;
   last_name: string;
-  // LevelField is a DecimalField — DRF serializes as string (e.g., "3.50").
-  // Use string here; cast on display if needed.
-  level: string;
+  level: number;
   club: number | null;
   role: string;
   notify_push: boolean;
   notify_email: boolean;
 };
+
+// Wire shape: LevelField is a DecimalField — DRF serializes as string (e.g., "3.50").
+// We cast to Me at the fetch site so the rest of the app sees a number.
+type MeRaw = Omit<Me, "level"> & { level: string };
 
 const ROLE_LABELS: Record<string, string> = {
   player: "Jugador",
@@ -29,7 +31,10 @@ export default function ProfileScreen() {
   const queryClient = useQueryClient();
   const me = useQuery<Me, ApiError>({
     queryKey: ["me"],
-    queryFn: () => apiGet<Me>("/me/"),
+    queryFn: async () => {
+      const raw = await apiGet<MeRaw>("/me/");
+      return { ...raw, level: parseFloat(raw.level) || 0 };
+    },
   });
 
   const updateNotifications = useMutation<
