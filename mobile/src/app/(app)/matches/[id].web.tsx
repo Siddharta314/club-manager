@@ -118,6 +118,13 @@ export default function MatchDetailScreen() {
           ? <ActivityIndicator color="#fff" />
           : <Text style={styles.buttonText}>{buttonLabel}</Text>}
       </Pressable>
+
+      <Pressable
+        style={styles.chatButton}
+        onPress={() => router.push(`/(app)/matches/${id}/chat`)}
+      >
+        <Text style={styles.chatButtonText}>Ir al chat</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -142,4 +149,13 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { backgroundColor: '#999' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  chatButton: {
+    margin: 20,
+    marginTop: 0,
+    padding: 14,
+    backgroundColor: '#666',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  chatButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
