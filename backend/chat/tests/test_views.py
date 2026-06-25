@@ -167,6 +167,28 @@ class TestGetChatMessages:
         response = client.get(self.URL_TMPL.format(id=1))
         assert response.status_code == 401
 
+    def test_chat_message_list_throttles_at_60_per_minute(self, auth_client) -> None:
+        """61st GET within 60s returns 429; first 60 succeed.
+
+        ScopedRateThrottle scoped to ``chat-poll`` at 60/min.
+        The autouse ``_clear_cache`` fixture isolates counters
+        between tests.
+        """
+        _, _, slot = _make_club_court_slot()
+        client, host = auth_client("cv_throttle", level=3.50)
+        match = create_match_from_slot(slot=slot, host=host)
+        url = self.URL_TMPL.format(id=match.pk) + "?since=0"
+
+        # First 60 GETs must succeed.
+        for i in range(60):
+            response = client.get(url)
+            assert response.status_code != 429, (
+                f"GET {i + 1} unexpectedly throttled: {response.status_code}"
+            )
+        # 61st GET must be throttled.
+        response = client.get(url)
+        assert response.status_code == 429, response.data
+
 
 # ---------------------------------------------------------------------------
 # POST — create
@@ -293,3 +315,28 @@ class TestPostChatMessage:
         assert ChatMessage.objects.filter(match=match).count() == 1
         # Cached body returns the original text, not the retry's text.
         assert second.data["text"] == "first try"
+
+    def test_post_is_not_throttled(self, auth_client) -> None:
+        """POST is deliberately NOT throttled (mutating, not polling).
+
+        Triangulation for ``test_chat_message_list_throttles_at_60_per_minute``:
+        the throttle is GET-only via ``get_throttles()``, so 61 POSTs
+        (well above the GET limit) must all succeed with 201.
+        """
+        _, _, slot = _make_club_court_slot()
+        client, host = auth_client("cv_post_nothrottle", level=3.50)
+        match = create_match_from_slot(slot=slot, host=host)
+        url = self.URL_TMPL.format(id=match.pk)
+
+        # 61 POSTs — all must succeed (not throttled).
+        for i in range(61):
+            response = client.post(
+                url,
+                {"text": f"msg {i}"},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY=f"cv-post-{i}",
+            )
+            assert response.status_code == 201, (
+                f"POST {i + 1} unexpectedly throttled: {response.status_code}"
+            )
+        assert ChatMessage.objects.filter(match=match).count() == 61

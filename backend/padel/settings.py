@@ -167,6 +167,12 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
     # PR 4: OpenAPI schema generation via drf-spectacular.
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Chat poll rate limit (Slice 2 of polish-level-throttle-pushtoken).
+    # Scoped via ``throttle_scope = "chat-poll"`` on
+    # ``ChatMessageListView``. 60/min gives ~5x headroom over the
+    # mobile's 5s polling cadence (12 req/min/user). Swap to Redis in
+    # multi-worker prod (LocMemCache is per-process).
+    "DEFAULT_THROTTLE_RATES": {"chat-poll": "60/min"},
 }
 
 

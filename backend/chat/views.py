@@ -26,6 +26,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from chat.models import ChatMessage
@@ -56,6 +57,16 @@ class ChatMessageListView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+
+    def get_throttles(self):
+        """GET is throttled at ``chat-poll`` (60/min) to bound polling
+        abuse; POST is intentionally not throttled — it's a mutating
+        action the user takes deliberately, not a polling cycle.
+        """
+        if self.request.method == "GET":
+            self.throttle_scope = "chat-poll"
+            return [ScopedRateThrottle()]
+        return []  # POST not throttled
 
     @staticmethod
     def _get_match_or_404(pk: int) -> Match:
